@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyYNV0LLVtLX3Eus8LK6FcXCcKRNbdqzxZWsCbYLtMzMCASFTiC_a8FwayLCnLAMW8fow/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywMIDY91ckBpSBCrZlWN7GXfFZ65EbbvovSqbDeucQV_MKBI6w5jFnhJbau2FD91Tkmw/exec';
 
 // ─── DEMO DATA ────────────────────────────────────────────────
 const DEMO_MOVIES = [
@@ -268,9 +268,43 @@ function fetchScriptJSON(url) {
   });
 }
 
+const CACHE_KEY   = 'thedrive_cache_v1';
+const CACHE_MAX_AGE = 5 * 60 * 1000; // 5 minutes
+
+function saveCache(data) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
+  } catch(e) {}
+}
+
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_MAX_AGE) return null;
+    return data;
+  } catch(e) { return null; }
+}
+
+function applyDriveData(rawData, csvRows) {
+  const rawMovies = rawData.movies || rawData;
+  posterMap = rawData.posters || {};
+  const videoMimeTypes = ['video/', 'application/octet-stream'];
+  const driveMap = Object.fromEntries(
+    Object.entries(rawMovies).filter(([, val]) =>
+      !val.mimeType || videoMimeTypes.some(t => val.mimeType.startsWith(t))
+    )
+  );
+  allMovies = mergeData(csvRows, driveMap, posterMap);
+  render();
+  populateResFilter();
+  updateCounts();
+}
+
 async function loadData(sheetURL, scriptURL) {
   setProgress(10);
-  let csvRows = [], driveMap = {};
+  let csvRows = [];
 
   // ── 1. Fetch CSV ──
   try {
@@ -278,47 +312,48 @@ async function loadData(sheetURL, scriptURL) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const text = await r.text();
     csvRows = parseCSV(text);
-    setProgress(45);
+    setProgress(30);
   } catch (e) {
     showToast('⚠ Could not load Sheet CSV. Check the URL & sharing settings.');
     console.error('CSV fetch error:', e);
   }
 
-  // ── 2. Fetch Drive JSON ──
+  // ── 2. Render immediately from cache if available ──
+  const cached = loadCache();
+  if (cached) {
+    applyDriveData(cached, csvRows);
+    setProgress(100);
+    setTimeout(() => scanBar.classList.add('hidden'), 300);
+  } else {
+    // No cache — show movies without availability while Drive loads
+    allMovies = mergeData(csvRows, {}, {});
+    render();
+    populateResFilter();
+    updateCounts();
+  }
+
+  // ── 3. Fetch Drive JSON in background ──
   const driveURL = scriptURL && scriptURL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE' ? scriptURL : null;
   if (driveURL) {
     try {
       const driveData = await fetchScriptJSON(driveURL);
       if (driveData && driveData.error) throw new Error(driveData.error);
-
-      // Support both old flat format and new { movies, posters } format
-      const rawMovies = driveData.movies || driveData;
-      posterMap = driveData.posters || {};
-
-      // Only treat entries as available movies if they have a video mimeType.
-      // This prevents poster images from ever being counted as uploaded movies.
-      const videoMimeTypes = ['video/', 'application/octet-stream'];
-      driveMap = Object.fromEntries(
-        Object.entries(rawMovies).filter(([, val]) =>
-          !val.mimeType || videoMimeTypes.some(t => val.mimeType.startsWith(t))
-        )
-      );
-      setProgress(80);
+      saveCache(driveData);
+      applyDriveData(driveData, csvRows);
+      setProgress(100);
+      setTimeout(() => scanBar.classList.add('hidden'), 300);
     } catch (e) {
       showToast('⚠ Could not load Drive data. Check the Script URL & deployment.');
       console.error('Drive JSON error:', e);
+      if (!cached) {
+        setProgress(100);
+        setTimeout(() => scanBar.classList.add('hidden'), 300);
+      }
     }
   } else {
-    setProgress(80);
+    setProgress(100);
+    setTimeout(() => scanBar.classList.add('hidden'), 300);
   }
-
-  // ── 3. Merge ──
-  allMovies = mergeData(csvRows, driveMap, posterMap);
-  setProgress(100);
-  setTimeout(() => scanBar.classList.add('hidden'), 600);
-  render();
-  populateResFilter();
-  updateCounts();
 }
 
 function mergeData(rows, driveMap, posterMap = {}) {
