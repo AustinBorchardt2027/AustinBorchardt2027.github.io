@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzIA26LksPWa20G4DwZCPzve4LRpeFj_8VhxUhD1fODvg0VJNf3uRifEjvL3TRaERMIDw/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyYNV0LLVtLX3Eus8LK6FcXCcKRNbdqzxZWsCbYLtMzMCASFTiC_a8FwayLCnLAMW8fow/exec';
 
 // ─── DEMO DATA ────────────────────────────────────────────────
 const DEMO_MOVIES = [
@@ -500,7 +500,7 @@ function renderGrid() {
     card.className = 'movie-card';
     card.style.animationDelay = Math.min(i * 30, 400) + 'ms';
     card.innerHTML = `
-      ${m.poster ? `<div class="card-poster"><img src="${m.poster}" alt="${escHtml(m.title)}" loading="lazy" /></div>` : ''}
+      ${m.poster ? `<div class="card-poster"><img src="${m.poster}" alt="${escHtml(m.title)}" loading="lazy" onload="this.classList.add('loaded')" /></div>` : ''}
       <div class="card-title">${escHtml(m.title)}</div>
       <div class="card-meta">
         <span class="card-year">${escHtml(m.year)}</span>
