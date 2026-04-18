@@ -553,6 +553,7 @@ function renderTable() {
   filtered.forEach((m, i) => {
     const tr = document.createElement('tr');
     tr.style.animationDelay = Math.min(i * 18, 300) + 'ms';
+    const reqCount = getRequestCount(m.title);
     tr.innerHTML = `
       <td class="td-num">${i + 1}</td>
       <td class="td-title">${escHtml(m.title)}</td>
@@ -566,16 +567,13 @@ function renderTable() {
           ${m.available ? 'AVAILABLE' : 'NOT UPLOADED'}
         </span>
       </td>
-      <td>
+      <td class="td-link">
         ${m.driveLink
           ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶ WATCH</a>`
-          : `<span class="no-link">—</span>`}
-      </td>
-      <td>
-        <button class="request-btn" data-title="${escHtml(m.title)}">
-          <span class="request-icon">＋</span> REQUEST
-          <span class="request-count">${getRequestCount(m.title) || ''}</span>
-        </button>
+          : `<button class="request-btn" data-title="${escHtml(m.title)}">
+               <span class="request-icon">＋</span> REQUEST
+               ${reqCount ? `<span class="request-count">${reqCount}</span>` : ''}
+             </button>`}
       </td>
     `;
     frag.appendChild(tr);
@@ -597,6 +595,7 @@ function renderGrid() {
     const card = document.createElement('div');
     card.className = 'movie-card';
     card.style.animationDelay = Math.min(i * 30, 400) + 'ms';
+    const cardReqCount = getRequestCount(m.title);
     card.innerHTML = `
       ${m.poster ? `<div class="card-poster"><img src="${m.poster}" alt="${escHtml(m.title)}" loading="lazy" onload="this.classList.add('loaded')" /></div>` : ''}
       <div class="card-title">${escHtml(m.title)}</div>
@@ -616,12 +615,11 @@ function renderGrid() {
         </span>
         ${m.driveLink
           ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶</a>`
-          : ''}
+          : `<button class="request-btn" data-title="${escHtml(m.title)}">
+               <span class="request-icon">＋</span> REQUEST
+               ${cardReqCount ? `<span class="request-count">${cardReqCount}</span>` : ''}
+             </button>`}
       </div>
-      <button class="request-btn request-btn--card" data-title="${escHtml(m.title)}">
-        <span class="request-icon">＋</span> REQUEST
-        <span class="request-count">${getRequestCount(m.title) || ''}</span>
-      </button>
     `;
     frag.appendChild(card);
   });
