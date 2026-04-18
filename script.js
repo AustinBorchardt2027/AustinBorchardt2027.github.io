@@ -1,5 +1,5 @@
 /* =============================================================
-   CINEMATHEQUE — script.js
+   THE DRIVE — script.js
    Fetches Sheet CSV + Drive JSON, merges them, renders the UI.
    No external dependencies except Google Fonts (CSS only).
    ============================================================= */
@@ -7,8 +7,8 @@
 // ─── CONFIG ───────────────────────────────────────────────────
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
-// Apps Script web app URL — paste yours here after deploying Code.gs
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxOcJVP9BCmStCwFF_ocjUx11fD-3V27_IVm_DNtoytzwWmKj955v--6pfKwdTNGzF/exec';
+// ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyVRvH5_uhUM2aPczIO9P-k_ChAoEc3CwTeNxojEKiH_3XuhPMnsVDjDNxrVocnD-jv/exec';
 
 // ─── DEMO DATA ────────────────────────────────────────────────
 const DEMO_MOVIES = [
@@ -269,9 +269,10 @@ async function loadData(sheetURL, scriptURL) {
   }
 
   // ── 2. Fetch Drive JSON ──
-  if (scriptURL) {
+  const driveURL = scriptURL && scriptURL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE' ? scriptURL : null;
+  if (driveURL) {
     try {
-      driveMap = await fetchScriptJSON(scriptURL);
+      driveMap = await fetchScriptJSON(driveURL);
       if (driveMap && driveMap.error) throw new Error(driveMap.error);
       setProgress(80);
     } catch (e) {
@@ -532,15 +533,7 @@ document.querySelectorAll('.toggle-btn').forEach(btn => {
 // ─── INIT ─────────────────────────────────────────────────────
 
 (function init() {
-  // Hide the config modal — URLs are hardcoded
   const modal = $('config-modal');
   if (modal) modal.classList.add('hidden');
-
-  if (!DRIVE_SCRIPT_URL || DRIVE_SCRIPT_URL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
-    showToast('⚠ Set DRIVE_SCRIPT_URL in script.js after deploying Code.gs', 8000);
-    // Still load the sheet so at least metadata shows (all "Not Uploaded")
-    loadData(SHEET_CSV_URL, null);
-  } else {
-    loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL);
-  }
+  loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL);
 })();
