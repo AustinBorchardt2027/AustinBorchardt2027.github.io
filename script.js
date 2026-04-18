@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzFtImoS-DDHEz7FJqZcy47KwXbeL3754tIixWhXsO4meAjq_4GlnlHJ0k9ShOF2YmH/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRsqWSVvOrpXXC8h3phQMOvcYIt4a1N4YII6SxQ8iEwzlVYm96l-PYiHsBmiNHiINt3w/exec';
 
 // ─── DEMO DATA ────────────────────────────────────────────────
 const DEMO_MOVIES = [
@@ -294,7 +294,7 @@ async function loadData(sheetURL, scriptURL) {
 
 function mergeData(rows, driveMap) {
   // Normalize column names: handles "Title", "title", "Movie Title", etc.
-  return rows.map(row => {
+  const mapped = rows.map(row => {
     const title       = row.title || row.movie_title || row['movie title'] || '';
     const resolution  = row.resolution || row.res || '';
     const maturityRating = row.maturity_rating || row.rating || row.maturityrating || '';
@@ -313,8 +313,36 @@ function mergeData(rows, driveMap) {
       imdbRating,
       available: !!match,
       driveLink: match ? match.link : null,
+      driveResolution: match ? (match.name || '') : '',
     };
   }).filter(m => m.title);
+
+  // Deduplicate rows with the same normalized title.
+  // If a Drive file exists, keep the row whose resolution matches the drive file.
+  // Otherwise keep the first row encountered.
+  const seen = new Map();
+  for (const m of mapped) {
+    const key = normalize(m.title);
+    if (!seen.has(key)) {
+      seen.set(key, m);
+    } else {
+      const existing = seen.get(key);
+      // Prefer whichever row's resolution matches the actual drive file
+      if (m.available && m.driveResolution) {
+        const driveRes = m.driveResolution.toUpperCase();
+        const mRes = m.resolution.toUpperCase();
+        const existingRes = existing.resolution.toUpperCase();
+        const mMatches = driveRes.includes(mRes) || mRes.split('P')[0] === driveRes.split('P')[0];
+        const existingMatches = driveRes.includes(existingRes) || existingRes.split('P')[0] === driveRes.split('P')[0];
+        if (mMatches && !existingMatches) {
+          seen.set(key, m);
+        }
+      }
+      // If neither or both match, keep existing (first row wins)
+    }
+  }
+
+  return [...seen.values()];
 }
 
 function populateResFilter() {
