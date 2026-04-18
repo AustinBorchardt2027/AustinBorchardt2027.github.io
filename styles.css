@@ -792,6 +792,69 @@ tbody tr:hover td { background: var(--surface2); }
   transform: translateY(0);
 }
 
+/* ── REQUEST BUTTON ── */
+.request-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .5px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition), transform var(--transition);
+  white-space: nowrap;
+}
+
+.request-btn:hover {
+  background: rgba(232,197,71,.08);
+  border-color: rgba(232,197,71,.4);
+  color: var(--accent);
+}
+
+.request-btn--fired {
+  background: rgba(232,197,71,.18) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  transform: scale(1.08);
+}
+
+.request-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.request-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: rgba(232,197,71,.15);
+  border-radius: 99px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1;
+  /* hide when empty */
+}
+
+.request-count:empty {
+  display: none;
+}
+
+.request-btn--card {
+  width: 100%;
+  justify-content: center;
+  padding: 7px 10px;
+  margin-top: 4px;
+}
+
 /* ── RESPONSIVE ── */
 @media (max-width: 768px) {
   .header-inner { padding: 14px 16px; }
