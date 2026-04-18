@@ -534,6 +534,27 @@ tbody tr:hover td { background: var(--surface2); }
   box-shadow: 0 8px 32px rgba(0,0,0,.4);
 }
 
+.card-poster {
+  width: calc(100% + 36px);
+  margin: -18px -18px 0 -18px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  overflow: hidden;
+  aspect-ratio: 2/3;
+  background: var(--surface2);
+}
+
+.card-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform .4s ease;
+}
+
+.movie-card:hover .card-poster img {
+  transform: scale(1.04);
+}
+
 .card-title {
   font-family: var(--font-head);
   font-size: 18px;
