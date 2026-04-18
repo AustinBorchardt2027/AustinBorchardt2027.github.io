@@ -58,18 +58,31 @@ let posterMap   = {};   // normalized title → poster URL
 // ─── REQUEST COUNTS ──────────────────────────────────────────
 // Counts come from the server (Apps Script PropertiesService).
 // We keep a local in-memory cache so re-renders don't flicker.
-let requestCounts = {}; // normalized title → count (populated after loadData)
+let requestCounts = {}; // seeded from localStorage below, merged with server on load
 
 function getRequestCount(title) {
   return requestCounts[normalize(title)] || 0;
 }
 
+const LOCAL_REQUEST_KEY = 'thedrive_requests_v1';
+
+function loadLocalCounts() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_REQUEST_KEY) || '{}'); } catch(e) { return {}; }
+}
+
+function saveLocalCounts() {
+  try { localStorage.setItem(LOCAL_REQUEST_KEY, JSON.stringify(requestCounts)); } catch(e) {}
+}
+
 async function postRequest(title) {
+  const key = normalize(title);
+  // Optimistically increment in memory and persist locally right away
+  requestCounts[key] = (requestCounts[key] || 0) + 1;
+  saveLocalCounts();
+  const localCount = requestCounts[key];
+
   if (!DRIVE_SCRIPT_URL || DRIVE_SCRIPT_URL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
-    // Fallback: local-only if no script URL configured
-    const key = normalize(title);
-    requestCounts[key] = (requestCounts[key] || 0) + 1;
-    return requestCounts[key];
+    return localCount;
   }
   try {
     const res = await fetch(DRIVE_SCRIPT_URL, {
@@ -80,17 +93,18 @@ async function postRequest(title) {
     });
     const data = await res.json();
     if (data.count !== undefined) {
-      requestCounts[normalize(title)] = data.count;
+      requestCounts[key] = data.count;
+      saveLocalCounts();
       return data.count;
     }
   } catch(e) {
     console.warn('Request POST failed, using local count', e);
   }
-  // Fallback: increment locally if POST failed
-  const key = normalize(title);
-  requestCounts[key] = (requestCounts[key] || 0) + 1;
-  return requestCounts[key];
+  return localCount;
 }
+
+// Seed from localStorage immediately so counts show on first render
+requestCounts = loadLocalCounts();
 
 // ─── DOM REFS ─────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
@@ -327,9 +341,13 @@ function loadCache() {
 function applyDriveData(rawData, csvRows) {
   const rawMovies = rawData.movies || rawData;
   posterMap = rawData.posters || {};
-  // Merge in server-side request counts
+  // Merge server counts with local — take the higher of the two per title
+  // so locally-clicked counts never get wiped by a stale server response
   if (rawData.requests) {
-    requestCounts = Object.assign(requestCounts, rawData.requests);
+    for (const [k, v] of Object.entries(rawData.requests)) {
+      requestCounts[k] = Math.max(requestCounts[k] || 0, v);
+    }
+    saveLocalCounts();
   }
   const videoMimeTypes = ['video/', 'application/octet-stream'];
   const driveMap = Object.fromEntries(
@@ -700,17 +718,29 @@ $('main-content').addEventListener('click', async e => {
 
   // Disable immediately to prevent double-clicks
   btn.disabled = true;
-
   const title = btn.dataset.title;
-  const newCount = await postRequest(title);
 
-  // Update all request buttons for this title across both views
-  document.querySelectorAll(`.request-btn[data-title="${CSS.escape(title)}"]`).forEach(b => {
-    b.disabled = false;
-    b.querySelector('.request-count').textContent = newCount;
-    b.classList.add('request-btn--fired');
-    setTimeout(() => b.classList.remove('request-btn--fired'), 600);
-  });
+  // Update all matching buttons immediately (optimistic UI)
+  function updateButtons(count) {
+    document.querySelectorAll(`.request-btn[data-title="${CSS.escape(title)}"]`).forEach(b => {
+      b.disabled = false;
+      const countEl = b.querySelector('.request-count');
+      countEl.textContent = count;
+      b.classList.add('request-btn--fired');
+      setTimeout(() => b.classList.remove('request-btn--fired'), 600);
+    });
+  }
+
+  // Increment locally and show immediately — no view switch needed
+  const optimisticCount = (requestCounts[normalize(title)] || 0) + 1;
+  updateButtons(optimisticCount);
+
+  // Then fire the real POST and correct the count if the server differs
+  const serverCount = await postRequest(title);
+  if (serverCount !== optimisticCount) {
+    updateButtons(serverCount);
+  }
+
   showToast(`📌 Requested: ${title}`);
 });
 
