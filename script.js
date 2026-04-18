@@ -290,9 +290,19 @@ async function loadData(sheetURL, scriptURL) {
     try {
       const driveData = await fetchScriptJSON(driveURL);
       if (driveData && driveData.error) throw new Error(driveData.error);
+
       // Support both old flat format and new { movies, posters } format
-      driveMap = driveData.movies || driveData;
+      const rawMovies = driveData.movies || driveData;
       posterMap = driveData.posters || {};
+
+      // Only treat entries as available movies if they have a video mimeType.
+      // This prevents poster images from ever being counted as uploaded movies.
+      const videoMimeTypes = ['video/', 'application/octet-stream'];
+      driveMap = Object.fromEntries(
+        Object.entries(rawMovies).filter(([, val]) =>
+          !val.mimeType || videoMimeTypes.some(t => val.mimeType.startsWith(t))
+        )
+      );
       setProgress(80);
     } catch (e) {
       showToast('⚠ Could not load Drive data. Check the Script URL & deployment.');
