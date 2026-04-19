@@ -1080,8 +1080,8 @@ function renderGrid() {
         <span class="status-pill ${m.available ? 'status-available' : 'status-missing'}">
           ${m.available ? 'AVAILABLE' : 'NOT UPLOADED'}
         </span>
+        ${m.driveLink ? `<div class="card-rating-row">${ratingHTML(m.title)}</div>` : ''}
       </div>
-      ${m.driveLink ? `<div class="card-rating-row">${ratingHTML(m.title)}</div>` : ''}
     `;
     frag.appendChild(card);
   });
