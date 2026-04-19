@@ -1850,13 +1850,10 @@ function renderPresenceChart(presence) {
   const canvas = document.getElementById('chart-presence');
   if (!canvas) return;
 
-  // Fill gaps: if two consecutive points are more than 20s apart,
-  // insert a 0 immediately after the first and before the second.
-  const INTERVAL_MS = 10 * 1000; // expected ping every 10s
-  const GAP_THRESH  = INTERVAL_MS * 2; // >20s between points = treat as gap
+  const INTERVAL_MS = 10 * 1000;
+  const GAP_THRESH  = INTERVAL_MS * 2;
 
   function tsToMs(ts) {
-    // ts is "yyyy-MM-dd HH:mm:ss"
     return new Date(ts.replace(' ', 'T')).getTime();
   }
 
@@ -1866,22 +1863,23 @@ function renderPresenceChart(presence) {
     if (i < presence.length - 1) {
       const gap = tsToMs(presence[i + 1].ts) - tsToMs(presence[i].ts);
       if (gap > GAP_THRESH) {
-        // Insert a zero at the gap boundary (just after the last known point)
         const afterTs = new Date(tsToMs(presence[i].ts) + INTERVAL_MS);
         const pad = n => String(n).padStart(2, '0');
-        const afterLabel = pad(afterTs.getHours()) + ':' + pad(afterTs.getMinutes()) + ':' + pad(afterTs.getSeconds());
-        const fakeTs = presence[i].ts.slice(0, 11) + afterLabel;
+        const fakeTs = presence[i].ts.slice(0, 11)
+          + pad(afterTs.getHours()) + ':' + pad(afterTs.getMinutes()) + ':' + pad(afterTs.getSeconds());
         filled.push({ ts: fakeTs, online: 0 });
       }
     }
   }
 
-  // Sample down to at most 500 points for performance
   const step    = Math.max(1, Math.floor(filled.length / 500));
   const sampled = filled.filter((_, i) => i % step === 0);
 
-  const labels = sampled.map(p => p.ts.slice(11, 16)); // HH:MM
-  const data   = sampled.map(p => p.online);
+  // Use numeric indices as labels so Chart.js never tries to parse them as dates.
+  // The actual HH:MM strings live in _times and are surfaced via the tick callback.
+  const times  = sampled.map(p => p.ts.slice(11, 16));
+  const values = sampled.map(p => p.online);
+  const labels = sampled.map((_, i) => i);
 
   const cfg = {
     type: 'line',
@@ -1889,26 +1887,22 @@ function renderPresenceChart(presence) {
       labels,
       datasets: [{
         label: 'Online',
-        data,
+        data: values,
         borderColor: '#3ecf74',
         backgroundColor: 'rgba(62,207,116,0.10)',
         borderWidth: 2,
         pointRadius: 0,
-        tension: 0,   // no smoothing — gaps should be sharp drops to 0
+        tension: 0,
         fill: true,
       }]
     },
-    options: presenceChartOptions()
+    options: presenceChartOptions(times)
   };
 
   if (chartPresence) chartPresence.destroy();
   chartPresence = new Chart(canvas, cfg);
+  chartPresence._times = times;
   lastPresenceAppendAt = Date.now();
-  // Seed last ping time from the final data point so live-append gap detection works correctly
-  if (presence.length > 0) {
-    const lastTs = presence[presence.length - 1].ts;
-    chartPresence._lastPingTime = new Date(lastTs.replace(' ', 'T'));
-  }
 }
 
 function chartOptions(yLabel) {
@@ -1949,15 +1943,15 @@ function chartOptions(yLabel) {
   };
 }
 
-function presenceChartOptions() {
+function presenceChartOptions(times) {
   const base = chartOptions('Users');
   base.scales.x.type = 'category';
   base.scales.x.ticks = {
     color: '#78788f',
     font: { family: 'DM Mono', size: 10 },
     maxTicksLimit: 10,
-    callback: function(val, index) {
-      return this.getLabelForValue(val);
+    callback: function(val) {
+      return times[val] || '';
     }
   };
   return base;
@@ -1989,16 +1983,18 @@ function pushPresencePing() {
       const hhmm   = pad(now.getHours()) + ':' + pad(now.getMinutes());
       const labels = chartPresence.data.labels;
       const vals   = chartPresence.data.datasets[0].data;
-      // Insert a zero if more than 20s has passed since the last point
+      const times  = chartPresence._times || [];
       if (lastPresenceAppendAt > 0 && (now.getTime() - lastPresenceAppendAt) > 20000) {
         const zeroTime = new Date(lastPresenceAppendAt + 10000);
-        labels.push(pad(zeroTime.getHours()) + ':' + pad(zeroTime.getMinutes()));
+        times.push(pad(zeroTime.getHours()) + ':' + pad(zeroTime.getMinutes()));
+        labels.push(labels.length);
         vals.push(0);
       }
-      labels.push(hhmm);
+      times.push(hhmm);
+      labels.push(labels.length);
       vals.push(serverCount);
       lastPresenceAppendAt = now.getTime();
-      if (labels.length > 500) { labels.shift(); vals.shift(); }
+      if (labels.length > 500) { labels.shift(); vals.shift(); times.shift(); }
       chartPresence.update('none');
     }
   };
