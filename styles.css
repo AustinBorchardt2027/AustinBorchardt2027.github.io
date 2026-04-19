@@ -121,6 +121,48 @@ body {
   user-select: none;
 }
 
+
+.meta-updated {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .5px;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.refresh-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color .2s, border-color .2s, transform .3s;
+  margin-left: 4px;
+}
+
+.refresh-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.refresh-btn.spinning {
+  animation: spin-refresh .7s linear infinite;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+@keyframes spin-refresh {
+  to { transform: rotate(360deg); }
+}
+
 .header-meta {
   font-family: var(--font-mono);
   font-size: 11px;
