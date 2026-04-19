@@ -837,6 +837,7 @@ tbody tr:hover td { background: var(--surface2); }
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .card-footer {
