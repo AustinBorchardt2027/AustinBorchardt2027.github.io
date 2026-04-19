@@ -56,29 +56,54 @@ let isDemoMode  = false;
 let posterMap   = {};   // normalized title → poster URL
 
 // ─── REQUEST COUNTS ──────────────────────────────────────────
-// Counts come from the server (Apps Script PropertiesService).
-// We keep a local in-memory cache so re-renders don't flicker.
-let requestCounts = {}; // seeded from localStorage below, merged with server on load
+// TWO separate stores:
+//   requestCounts  — server totals (refreshed from server on every load, shown to all users)
+//   userRequested  — Set of normalized titles THIS user has clicked (persisted forever in localStorage)
+//
+// This way:
+//   • A refresh always pulls fresh totals from the server.
+//   • Whether *you* requested something is remembered locally, independent of the count.
+//   • Movies you haven't requested still show their total request count.
 
+let requestCounts = {}; // { normalizedTitle: number } — from server
+
+const LOCAL_REQUEST_KEY  = 'thedrive_requests_v1';   // server counts cache (wiped on refresh)
+const LOCAL_USER_REQ_KEY = 'thedrive_user_reqs_v1';  // which titles THIS user requested (never wiped)
+
+// ── User-requested set ──
+function loadUserRequested() {
+  try { return new Set(JSON.parse(localStorage.getItem(LOCAL_USER_REQ_KEY) || '[]')); } catch(e) { return new Set(); }
+}
+function saveUserRequested() {
+  try { localStorage.setItem(LOCAL_USER_REQ_KEY, JSON.stringify([...userRequested])); } catch(e) {}
+}
+let userRequested = loadUserRequested(); // persists across refreshes
+
+function hasUserRequested(title) {
+  return userRequested.has(normalize(title));
+}
+
+// ── Server counts ──
 function getRequestCount(title) {
   return requestCounts[normalize(title)] || 0;
 }
 
-const LOCAL_REQUEST_KEY = 'thedrive_requests_v1';
-
 function loadLocalCounts() {
   try { return JSON.parse(localStorage.getItem(LOCAL_REQUEST_KEY) || '{}'); } catch(e) { return {}; }
 }
-
 function saveLocalCounts() {
   try { localStorage.setItem(LOCAL_REQUEST_KEY, JSON.stringify(requestCounts)); } catch(e) {}
 }
 
 async function postRequest(title) {
   const key = normalize(title);
-  // Optimistically increment in memory and persist locally right away
+
+  // Mark this user as having requested this title — persisted locally forever
+  userRequested.add(key);
+  saveUserRequested();
+
+  // Optimistically bump the count in memory so the UI updates instantly
   requestCounts[key] = (requestCounts[key] || 0) + 1;
-  saveLocalCounts();
   const localCount = requestCounts[key];
 
   if (!DRIVE_SCRIPT_URL || DRIVE_SCRIPT_URL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
@@ -86,7 +111,6 @@ async function postRequest(title) {
   }
 
   // Use JSONP-style GET instead of POST to avoid Apps Script CORS issues.
-  // The callback param triggers the JSONP path in doGet which reads ?action=request&title=...
   return new Promise(resolve => {
     const cbName = '__requestCallback_' + Date.now();
     const script = document.createElement('script');
@@ -106,7 +130,6 @@ async function postRequest(title) {
       cleanup();
       if (data && data.count !== undefined) {
         requestCounts[key] = data.count;
-        saveLocalCounts();
         resolve(data.count);
       } else {
         resolve(localCount);
@@ -123,8 +146,8 @@ async function postRequest(title) {
   });
 }
 
-// Seed from localStorage immediately so counts show on first render
-requestCounts = loadLocalCounts();
+// requestCounts starts empty — server data fills it in applyDriveData()
+requestCounts = {};
 
 // ─── DOM REFS ─────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
@@ -361,16 +384,11 @@ function loadCache() {
 function applyDriveData(rawData, csvRows) {
   const rawMovies = rawData.movies || rawData;
   posterMap = rawData.posters || {};
-  // On page load, always replace local counts with the authoritative server counts.
-  // This ensures a refresh clears any stale local state and reflects the true
-  // total from the Requests sheet. Any optimistic local increments from THIS
-  // session (not yet in requestCounts) are already committed to the server.
+  // Always replace counts with the authoritative server totals on load.
+  // The user's personal requested-set (userRequested) is stored separately
+  // and never wiped, so their "✓ REQUESTED" state survives refreshes.
   if (rawData.requests) {
-    requestCounts = {};
-    for (const [k, v] of Object.entries(rawData.requests)) {
-      requestCounts[k] = v;
-    }
-    saveLocalCounts();
+    requestCounts = { ...rawData.requests };
   }
   const videoMimeTypes = ['video/', 'application/octet-stream'];
   const driveMap = Object.fromEntries(
@@ -605,6 +623,7 @@ function renderTable() {
     const tr = document.createElement('tr');
     tr.style.animationDelay = Math.min(i * 18, 300) + 'ms';
     const reqCount = getRequestCount(m.title);
+    const iRequested = hasUserRequested(m.title);
     tr.innerHTML = `
       <td class="td-num">${i + 1}</td>
       <td class="td-title">${escHtml(m.title)}</td>
@@ -621,9 +640,9 @@ function renderTable() {
       <td class="td-link">
         ${m.driveLink
           ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶ WATCH</a>`
-          : reqCount
-            ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">✓</span> REQUESTED <span class="request-count">${reqCount}</span></button>`
-            : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">＋</span> REQUEST</button>`}
+          : iRequested
+            ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">✓</span> REQUESTED${reqCount ? ' <span class="request-count">' + reqCount + '</span>' : ''}</button>`
+            : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">＋</span> REQUEST${reqCount ? ' <span class="request-count">' + reqCount + '</span>' : ''}</button>`}
       </td>
     `;
     frag.appendChild(tr);
@@ -646,6 +665,7 @@ function renderGrid() {
     card.className = 'movie-card';
     card.style.animationDelay = Math.min(i * 30, 400) + 'ms';
     const cardReqCount = getRequestCount(m.title);
+    const cardIRequested = hasUserRequested(m.title);
     card.innerHTML = `
       ${m.poster ? `<div class="card-poster"><img src="${m.poster}" alt="${escHtml(m.title)}" loading="lazy" onload="this.classList.add('loaded')" /></div>` : ''}
       <div class="card-title">${escHtml(m.title)}</div>
@@ -665,9 +685,9 @@ function renderGrid() {
         </span>
         ${m.driveLink
           ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶</a>`
-          : cardReqCount
-            ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">✓</span> REQUESTED <span class="request-count">${cardReqCount}</span></button>`
-            : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">＋</span> REQUEST</button>`}
+          : cardIRequested
+            ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">✓</span> REQUESTED${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`
+            : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">＋</span> REQUEST${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`}
       </div>
     `;
     frag.appendChild(card);
@@ -767,10 +787,8 @@ function setRequestedState(title, count) {
   document.querySelectorAll('.request-btn[data-title="' + CSS.escape(title) + '"]').forEach(b => {
     b.disabled = false;
     b.classList.add('request-btn--done');
-    // Replace inner content with checkmark + count
-    const countHtml = count ? '<span class="request-count">' + count + '</span>' : '';
-    b.innerHTML = '<span class="request-icon">✓</span> REQUESTED ' + countHtml;
-    // Re-attach data-title since innerHTML wipe keeps the attribute
+    const countHtml = count ? ' <span class="request-count">' + count + '</span>' : '';
+    b.innerHTML = '<span class="request-icon">✓</span> REQUESTED' + countHtml;
     b.dataset.title = title;
   });
 }
