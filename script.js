@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzQN5cQN1gUZaf0Wtawf69TSA-lBcpMxJ6e5a9ke4id_NPBjJm-3p8rg5CI37xeNH2vbg/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUwqr71L3S-9oJT_3__IsfCmpIi2DjhKgBWxIwYQN6ymcPRP6t2NRCZx_-CYtFA7hGiA/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -139,7 +139,9 @@ function showGate() {
       }
 
       if (!validation.valid) {
-        if (validation.reason === 'expired') {
+        if (validation.reason === 'device_blocked') {
+          showError('This device has been blocked. Please contact Austin for access.');
+        } else if (validation.reason === 'expired') {
           showError('This key has reached its device limit. Please request a new key.');
         } else {
           showError('Invalid key. Please check and try again.');
@@ -149,6 +151,10 @@ function showGate() {
 
       // Key is valid — consume it (counts this as one new device)
       const consume = await callKeyAction('useKey', keyStr);
+      if (!consume.success && consume.reason === 'device_blocked') {
+        showError('This device has been blocked. Please contact Austin for access.');
+        return;
+      }
       if (!consume.success && consume.reason === 'expired') {
         // Race condition — another device used the last slot between validate and consume
         showError('This key just hit its device limit. Please request a new key.');
