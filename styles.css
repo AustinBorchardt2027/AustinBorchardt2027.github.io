@@ -766,6 +766,17 @@ tbody tr:hover td { background: var(--surface2); }
   color: var(--green);
 }
 
+/* Counter: green at rest, gold on poster hover */
+.card-request-btn--done .request-count {
+  background: rgba(62, 207, 116, 0.15);
+  color: var(--green);
+}
+
+.card-poster--requestable:hover .card-request-btn--done .request-count {
+  background: rgba(232, 197, 71, 0.15);
+  color: var(--accent);
+}
+
 /* Always show the done pill even without hover */
 .card-poster--requestable:has(.card-request-btn--done) .card-play-overlay {
   background: rgba(0, 0, 0, 0.35);
@@ -835,7 +846,15 @@ tbody tr:hover td { background: var(--surface2); }
   gap: 8px;
   margin-top: auto;
   padding-top: 10px;
+  padding-bottom: 10px;
   border-top: 1px solid var(--border);
+}
+
+/* Available cards have a .card-rating-row below the footer — cancel the extra padding
+   so the two sections don't double-space */
+.card-rating-row ~ .card-footer,
+.card-footer:has(+ .card-rating-row) {
+  padding-bottom: 0;
 }
 
 /* ── MODAL ── */
