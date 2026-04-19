@@ -766,13 +766,13 @@ tbody tr:hover td { background: var(--surface2); }
   color: var(--green);
 }
 
-/* Counter: green at rest, gold on poster hover */
+/* Counter: green when requested, gold when hovering the done pill */
 .card-request-btn--done .request-count {
   background: rgba(62, 207, 116, 0.15);
   color: var(--green);
 }
 
-.card-poster--requestable:hover .card-request-btn--done .request-count {
+.card-request-overlay--done:hover .card-request-btn--done .request-count {
   background: rgba(232, 197, 71, 0.15);
   color: var(--accent);
 }
@@ -841,20 +841,13 @@ tbody tr:hover td { background: var(--surface2); }
 
 .card-footer {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-top: auto;
   padding-top: 10px;
-  padding-bottom: 10px;
   border-top: 1px solid var(--border);
-}
-
-/* Available cards have a .card-rating-row below the footer — cancel the extra padding
-   so the two sections don't double-space */
-.card-rating-row ~ .card-footer,
-.card-footer:has(+ .card-rating-row) {
-  padding-bottom: 0;
 }
 
 /* ── MODAL ── */
@@ -1262,7 +1255,6 @@ tbody tr:hover td { background: var(--surface2); }
 
 /* Grid: ratings row below the footer */
 .card-rating-row {
-  padding: 0 12px 10px;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
 }
