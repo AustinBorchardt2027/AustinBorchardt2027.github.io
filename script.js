@@ -138,11 +138,36 @@ async function initWithGate() {
   const savedKey = getSavedKey();
 
   if (savedKey) {
-    // Key already saved — hide the gate immediately and proceed
+    // Key is saved locally — revalidate against the server in case it was deleted
     const overlay = document.getElementById('gate-overlay');
+
+    // Show a silent "checking" state — gate visible but no input yet
     if (overlay) {
-      overlay.classList.add('gate-overlay-hidden');
-      overlay.style.display = 'none';
+      overlay.classList.remove('gate-overlay-hidden');
+      const submitBtn = document.getElementById('gate-submit');
+      const input     = document.getElementById('gate-key-input');
+      if (submitBtn) { submitBtn.textContent = 'CHECKING…'; submitBtn.classList.add('loading'); }
+      if (input)     { input.value = savedKey; input.disabled = true; }
+    }
+
+    const validation = await callKeyAction('validateKey', savedKey);
+
+    if (validation.valid || validation.error) {
+      // Valid (or server unreachable — give benefit of the doubt) — proceed silently
+      if (overlay) {
+        overlay.classList.add('gate-overlay-hidden');
+        overlay.style.display = 'none';
+      }
+    } else {
+      // Key was deleted or expired — clear it and make them re-enter
+      try { localStorage.removeItem(LOCAL_KEY_STORE); } catch(e) {}
+      const submitBtn = document.getElementById('gate-submit');
+      const input     = document.getElementById('gate-key-input');
+      const errorEl   = document.getElementById('gate-error');
+      if (submitBtn) { submitBtn.textContent = 'ENTER THE DRIVE'; submitBtn.classList.remove('loading'); }
+      if (input)     { input.value = ''; input.disabled = false; }
+      if (errorEl)   { errorEl.textContent = 'Your access key is no longer valid. Please enter a new one.'; errorEl.hidden = false; }
+      await showGate();
     }
   } else {
     // No saved key — show gate and wait for it to be passed
