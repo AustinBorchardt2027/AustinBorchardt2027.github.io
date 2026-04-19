@@ -355,34 +355,37 @@ async function postRating(title, type) {
   }
   saveUserRatings();
 
-  // Optimistically update local counts
-  if (!ratingCounts[key]) ratingCounts[key] = { up: 0, down: 0 };
-  if (prev) ratingCounts[key][prev] = Math.max(0, (ratingCounts[key][prev] || 0) - 1);
-  if (userRatings[key]) ratingCounts[key][type] = (ratingCounts[key][type] || 0) + 1;
-
   if (!DRIVE_SCRIPT_URL || DRIVE_SCRIPT_URL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') return;
 
-  // Fire and forget — JSONP to Apps Script
-  const cbName = '__ratingCallback_' + Date.now();
-  const script = document.createElement('script');
-  const timer = setTimeout(() => {
-    clearTimeout(timer);
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-  }, 10000);
-  window[cbName] = function() {
-    clearTimeout(timer);
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-  };
-  script.src = DRIVE_SCRIPT_URL
-    + '?action=rateMovie'
-    + '&title=' + encodeURIComponent(title)
-    + '&type='  + encodeURIComponent(type)
-    + '&prev='  + encodeURIComponent(prev || '')
-    + '&callback=' + cbName;
-  script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); };
-  document.head.appendChild(script);
+  // Call Apps Script and update counts from the server's authoritative response
+  return new Promise(resolve => {
+    const cbName = '__ratingCallback_' + Date.now();
+    const script = document.createElement('script');
+    const timer = setTimeout(() => {
+      clearTimeout(timer);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      resolve();
+    }, 10000);
+    window[cbName] = function(data) {
+      clearTimeout(timer);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      // Always overwrite local counts with what the server says
+      if (data && typeof data.up === 'number' && typeof data.down === 'number') {
+        ratingCounts[key] = { up: data.up, down: data.down };
+      }
+      resolve(data);
+    };
+    script.src = DRIVE_SCRIPT_URL
+      + '?action=rateMovie'
+      + '&title=' + encodeURIComponent(title)
+      + '&type='  + encodeURIComponent(type)
+      + '&prev='  + encodeURIComponent(prev || '')
+      + '&callback=' + cbName;
+    script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); resolve(); };
+    document.head.appendChild(script);
+  });
 }
 
 // ─── SETTINGS PERSISTENCE ────────────────────────────────────
