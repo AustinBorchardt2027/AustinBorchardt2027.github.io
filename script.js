@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUwqr71L3S-9oJT_3__IsfCmpIi2DjhKgBWxIwYQN6ymcPRP6t2NRCZx_-CYtFA7hGiA/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw-nnYN0aMTS3LARmBALwoDRfGNSXTfPcFzM22s0yhhOjBS6wDGfYWByLAWH3JodUSjJw/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -219,13 +219,45 @@ function showGate() {
 }
 
 async function initWithGate() {
+  const overlay = document.getElementById('gate-overlay');
+
+  // ── Step 1: silently check if this device is blocked ──
+  // Do this before showing anything — blocked devices skip the gate entirely
+  // and go straight to the denied screen.
+  if (DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
+    const deviceCheck = await new Promise(resolve => {
+      const cbName = '__deviceCheckCallback_' + Date.now();
+      const script  = document.createElement('script');
+      const timer   = setTimeout(() => {
+        cleanup();
+        resolve({ allowed: true }); // fail open on timeout
+      }, 8000);
+      function cleanup() {
+        clearTimeout(timer);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+      window[cbName] = function(data) { cleanup(); resolve(data); };
+      script.src = DRIVE_SCRIPT_URL
+        + '?action=checkDevice'
+        + '&did='      + encodeURIComponent(getDeviceId())
+        + '&callback=' + cbName
+        + '&_cb='      + Date.now();
+      script.onerror = () => { cleanup(); resolve({ allowed: true }); };
+      document.head.appendChild(script);
+    });
+
+    if (deviceCheck.allowed === false) {
+      showDenied();
+      return; // stop here — never show the gate or load data
+    }
+  }
+
+  // ── Step 2: normal gate / saved-key flow ──
   const savedKey = getSavedKey();
 
   if (savedKey) {
     // Key is saved locally — revalidate against the server in case it was deleted
-    const overlay = document.getElementById('gate-overlay');
-
-    // Show a silent "checking" state — gate visible but no input yet
     if (overlay) {
       overlay.classList.remove('gate-overlay-hidden');
       const submitBtn = document.getElementById('gate-submit');
@@ -237,11 +269,9 @@ async function initWithGate() {
     const validation = await callKeyAction('validateKey', savedKey, true);
 
     if (validation.reason === 'device_blocked') {
-      // Device has been banned — show denied state and stop
       showDenied();
     } else if (validation.valid || validation.error) {
       // Valid (or server unreachable — give benefit of the doubt) — proceed silently
-      const overlay = document.getElementById('gate-overlay');
       if (overlay) {
         overlay.classList.add('gate-overlay-hidden');
         overlay.style.display = 'none';
@@ -262,6 +292,7 @@ async function initWithGate() {
     await showGate();
   }
 }
+
 
 
 // ─── DEMO DATA ────────────────────────────────────────────────
