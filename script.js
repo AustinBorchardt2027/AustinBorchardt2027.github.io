@@ -398,32 +398,23 @@ function levenshtein(a, b) {
   return dp[m][n];
 }
 
+/** Strip (year) and [tags] from a filename, then normalize */
+function normalizeFilename(str) {
+  return normalize(
+    String(str || '')
+      .replace(/\(\d{4}\)/g, '')   // remove (2014)
+      .replace(/\[.*?\]/g, '')      // remove [1080p], [BluRay], etc.
+  );
+}
+
 /** Find best Drive match for a movie title */
 function findDriveMatch(title, driveMap) {
-  const key = normalize(title);
-  // 1. Exact match
-  if (driveMap[key]) return driveMap[key];
-  // 2. Prefix match — sheet title is a prefix of the drive key (e.g. "f1" vs "f1themovie")
-  //    or drive key is a prefix of the sheet title.
-  //    Guard: the longer string can only be up to 20% longer than the shorter one,
-  //    preventing "guardiansofthegalaxy" from matching "guardiansofthegalaxyvol2".
+  const key = normalizeFilename(title);
+  // Build a stripped version of the drive map on the fly and do an exact match
   for (const [driveKey, val] of Object.entries(driveMap)) {
-    const shorter = Math.min(key.length, driveKey.length);
-    const longer  = Math.max(key.length, driveKey.length);
-    if (longer > shorter * 1.2) continue; // too much extra — skip
-    if (driveKey.startsWith(key) || key.startsWith(driveKey)) return val;
+    if (normalizeFilename(driveKey) === key) return val;
   }
-  // 3. Fuzzy: allow up to 2 edits for close typos
-  let best = null, bestDist = Infinity;
-  for (const [driveKey, val] of Object.entries(driveMap)) {
-    if (Math.abs(driveKey.length - key.length) > key.length * 0.5) continue;
-    const dist = levenshtein(key, driveKey);
-    if (dist <= 2 && dist < bestDist) {
-      bestDist = dist;
-      best = val;
-    }
-  }
-  return best;
+  return null;
 }
 
 /** Parse CSV text → array of objects */
