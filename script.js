@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzrnCQ-4-ybEp5_qzQ_4NU34Gm1KEkEnTp6B77ANbCvdDNVVJcz_aaRfsVXVHDgXyfy6g/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwEf-Uh1t3J-VHIS9uFZrxzPkcMA3XlL3xdNk0Bo9rRtmHQqpEHrq3zGYVDUNJYrzBNNQ/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -1560,4 +1560,339 @@ if (refreshBtn) {
 
   // Only load data after the gate is passed
   loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL);
+
+  // ── Online presence + stats pings ──
+  if (DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
+    fetchOnlineCount();
+    setInterval(fetchOnlineCount, 60 * 1000);
+    setInterval(pingHeartbeat,   4 * 60 * 1000);
+    // Record presence every 10 seconds
+    setInterval(pushPresencePing, 10 * 1000);
+  }
+
+  // ── Tab switching ──
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + tab).classList.add('active');
+      if (tab === 'stats') initStatsTab();
+    });
+  });
 })();
+
+// ─── ONLINE COUNT ─────────────────────────────────────────────
+
+function fetchOnlineCount() {
+  const cbName = '__onlineCallback_' + Date.now();
+  const script = document.createElement('script');
+  const timer  = setTimeout(() => {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  }, 10000);
+  window[cbName] = function(data) {
+    clearTimeout(timer);
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    const el = document.getElementById('online-count');
+    if (el && data && typeof data.online === 'number') {
+      el.textContent = data.online;
+    }
+  };
+  script.src = DRIVE_SCRIPT_URL
+    + '?action=getOnlineCount'
+    + '&callback=' + cbName
+    + '&_cb=' + Date.now();
+  script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
+  document.head.appendChild(script);
+}
+
+/** Re-ping checkDevice so our Last Seen stays current between page loads. */
+function pingHeartbeat() {
+  const cbName = '__heartbeatCallback_' + Date.now();
+  const script = document.createElement('script');
+  const timer  = setTimeout(() => {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  }, 10000);
+  window[cbName] = function() {
+    clearTimeout(timer);
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  };
+  script.src = DRIVE_SCRIPT_URL
+    + '?action=checkDevice'
+    + '&did='      + encodeURIComponent(getDeviceId())
+    + '&key='      + encodeURIComponent(getSavedKey() || '')
+    + '&callback=' + cbName
+    + '&_cb='      + Date.now();
+  script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
+  document.head.appendChild(script);
+}
+
+// ─── STATS TAB ────────────────────────────────────────────────
+
+let statsLoaded    = false;
+let chartLibrary   = null;
+let chartPresence  = null;
+
+function initStatsTab() {
+  // Render local stats immediately from allMovies (no network needed)
+  renderLocalStats();
+  // Then fetch server stats (snapshots, presence, device count)
+  if (!statsLoaded && DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
+    fetchStatsData();
+    statsLoaded = true;
+  }
+}
+
+function renderLocalStats() {
+  if (!allMovies.length) return;
+
+  const total     = allMovies.length;
+  const available = allMovies.filter(m => m.available).length;
+
+  // Upload progress bar
+  const pct = total > 0 ? Math.round((available / total) * 100) : 0;
+  const fracEl  = document.getElementById('upload-fraction');
+  const pctEl   = document.getElementById('upload-pct');
+  const fillEl  = document.getElementById('upload-fill');
+  if (fracEl)  fracEl.textContent  = available + ' / ' + total + ' films uploaded';
+  if (pctEl)   pctEl.textContent   = pct + '%';
+  if (fillEl)  fillEl.style.width  = pct + '%';
+
+  // Stat cards from local data
+  setText('stat-total-films', total);
+  setText('stat-available', available);
+
+  // Total size
+  let totalGB = 0;
+  allMovies.forEach(m => { totalGB += parseSizeGB(m.fileSize); });
+  setText('stat-total-size', totalGB > 0 ? totalGB.toFixed(1) + ' GB' : '—');
+
+  // Total runtime
+  let totalMins = 0;
+  allMovies.forEach(m => { totalMins += parseRuntimeMinutes(m.runtime); });
+  if (totalMins > 0) {
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
+    setText('stat-total-runtime', h + 'h ' + m + 'm');
+  }
+
+  // Avg IMDb
+  const rated = allMovies.filter(m => parseFloat(m.imdbRating) > 0);
+  if (rated.length) {
+    const avg = rated.reduce((s, m) => s + parseFloat(m.imdbRating), 0) / rated.length;
+    setText('stat-avg-imdb', '★ ' + avg.toFixed(1));
+  }
+
+  // Maturity counts
+  const matNorm = r => String(r || '').toUpperCase().replace(/[\s-]/g, '');
+  setText('stat-g',    allMovies.filter(m => matNorm(m.maturityRating) === 'G').length);
+  setText('stat-pg',   allMovies.filter(m => matNorm(m.maturityRating) === 'PG').length);
+  setText('stat-pg13', allMovies.filter(m => matNorm(m.maturityRating) === 'PG13').length);
+  setText('stat-r',    allMovies.filter(m => matNorm(m.maturityRating) === 'R').length);
+
+  // Resolution counts
+  setText('stat-4k',   allMovies.filter(m => /4k|2160/i.test(m.resolution)).length);
+  setText('stat-1080', allMovies.filter(m => /1080/i.test(m.resolution)).length);
+
+  // Push snapshot to server so daily graph stays current
+  pushSnapshot(total, available);
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(val);
+}
+
+function fetchStatsData() {
+  const cbName = '__statsCallback_' + Date.now();
+  const script = document.createElement('script');
+  const timer  = setTimeout(() => {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  }, 15000);
+  window[cbName] = function(data) {
+    clearTimeout(timer);
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    if (!data) return;
+    if (typeof data.uniqueDevices === 'number') setText('stat-total-users', data.uniqueDevices);
+    if (data.snapshots && data.snapshots.length) renderLibraryChart(data.snapshots);
+    if (data.presence  && data.presence.length)  renderPresenceChart(data.presence);
+  };
+  script.src = DRIVE_SCRIPT_URL
+    + '?action=getStatsData'
+    + '&callback=' + cbName
+    + '&_cb=' + Date.now();
+  script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
+  document.head.appendChild(script);
+}
+
+// ── Library growth chart ──
+function renderLibraryChart(snapshots) {
+  const canvas = document.getElementById('chart-library');
+  if (!canvas) return;
+
+  const labels    = snapshots.map(s => s.date);
+  const totals    = snapshots.map(s => s.total);
+  const available = snapshots.map(s => s.available);
+
+  const cfg = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Total Films',
+          data: totals,
+          borderColor: '#9090a8',
+          backgroundColor: 'rgba(144,144,168,0.08)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: '#9090a8',
+          tension: 0.3,
+          fill: true,
+        },
+        {
+          label: 'Available',
+          data: available,
+          borderColor: '#e8c547',
+          backgroundColor: 'rgba(232,197,71,0.10)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: '#e8c547',
+          tension: 0.3,
+          fill: true,
+        }
+      ]
+    },
+    options: chartOptions('Films')
+  };
+
+  if (chartLibrary) chartLibrary.destroy();
+  chartLibrary = new Chart(canvas, cfg);
+}
+
+// ── Presence history chart ──
+function renderPresenceChart(presence) {
+  const canvas = document.getElementById('chart-presence');
+  if (!canvas) return;
+
+  // Sample down to at most 500 points for performance
+  const step   = Math.max(1, Math.floor(presence.length / 500));
+  const sampled = presence.filter((_, i) => i % step === 0);
+
+  const labels = sampled.map(p => p.ts.slice(11, 16)); // HH:MM
+  const data   = sampled.map(p => p.online);
+
+  const cfg = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Online',
+        data,
+        borderColor: '#3ecf74',
+        backgroundColor: 'rgba(62,207,116,0.10)',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.2,
+        fill: true,
+      }]
+    },
+    options: chartOptions('Users')
+  };
+
+  if (chartPresence) chartPresence.destroy();
+  chartPresence = new Chart(canvas, cfg);
+}
+
+function chartOptions(yLabel) {
+  return {
+    responsive: true,
+    maintainAspectRatio: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        labels: {
+          color: '#9090a8',
+          font: { family: 'DM Mono', size: 11 },
+          boxWidth: 12,
+        }
+      },
+      tooltip: {
+        backgroundColor: '#18181f',
+        borderColor: '#252530',
+        borderWidth: 1,
+        titleColor: '#e8e8f0',
+        bodyColor: '#9090a8',
+        titleFont: { family: 'DM Mono', size: 11 },
+        bodyFont:  { family: 'DM Mono', size: 11 },
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#78788f', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 10 },
+        grid:  { color: 'rgba(37,37,48,0.6)' },
+      },
+      y: {
+        title: { display: true, text: yLabel, color: '#78788f', font: { family: 'DM Mono', size: 10 } },
+        ticks: { color: '#78788f', font: { family: 'DM Mono', size: 10 }, precision: 0 },
+        grid:  { color: 'rgba(37,37,48,0.6)' },
+        beginAtZero: true,
+      }
+    }
+  };
+}
+
+// ── Push presence ping (called every 10s) ──
+function pushPresencePing() {
+  const onlineEl = document.getElementById('online-count');
+  const count    = onlineEl ? (parseInt(onlineEl.textContent, 10) || 0) : 0;
+  const cbName   = '__presencePingCallback_' + Date.now();
+  const script   = document.createElement('script');
+  const timer    = setTimeout(() => {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  }, 8000);
+  window[cbName] = function() {
+    clearTimeout(timer);
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  };
+  script.src = DRIVE_SCRIPT_URL
+    + '?action=recordPresence'
+    + '&count='    + encodeURIComponent(count)
+    + '&callback=' + cbName
+    + '&_cb='      + Date.now();
+  script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
+  document.head.appendChild(script);
+}
+
+// ── Push today's snapshot counts ──
+function pushSnapshot(total, available) {
+  if (!DRIVE_SCRIPT_URL || DRIVE_SCRIPT_URL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') return;
+  const cbName = '__snapshotCallback_' + Date.now();
+  const script = document.createElement('script');
+  const timer  = setTimeout(() => {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  }, 8000);
+  window[cbName] = function() {
+    clearTimeout(timer);
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  };
+  script.src = DRIVE_SCRIPT_URL
+    + '?action=pushSnapshot'
+    + '&total='     + encodeURIComponent(total)
+    + '&available=' + encodeURIComponent(available)
+    + '&callback='  + cbName
+    + '&_cb='       + Date.now();
+  script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
+  document.head.appendChild(script);
+}
