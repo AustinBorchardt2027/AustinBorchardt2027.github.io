@@ -702,6 +702,79 @@ tbody tr:hover td { background: var(--surface2); }
   display: block;
 }
 
+/* ── CARD REQUEST OVERLAY ── */
+/* Shares .card-play-overlay base styles for bg/blur on hover */
+.card-poster--requestable:hover .card-play-overlay {
+  background: rgba(0, 0, 0, 0.50);
+}
+
+.card-poster--requestable:hover img {
+  filter: blur(3px);
+  transform: scale(1.04);
+}
+
+.card-request-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: 99px;
+  background: rgba(232, 197, 71, 0.12);
+  border: 1.5px solid var(--accent);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 200ms ease, transform 200ms cubic-bezier(.34,1.56,.64,1), background 160ms ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.card-poster--requestable:hover .card-request-btn {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.card-request-overlay:hover .card-request-btn:not(.card-request-btn--done) {
+  background: rgba(232, 197, 71, 0.25);
+}
+
+.card-request-icon {
+  font-size: 15px;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.card-request-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* "Done" state — green tint */
+.card-request-btn--done {
+  background: rgba(62, 207, 116, 0.12) !important;
+  border-color: var(--green) !important;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+  cursor: default;
+}
+
+.card-request-btn--done .card-request-icon,
+.card-request-btn--done .card-request-label {
+  color: var(--green);
+}
+
+/* Always show the done pill even without hover */
+.card-poster--requestable:has(.card-request-btn--done) .card-play-overlay {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.card-poster--requestable:has(.card-request-btn--done) img {
+  filter: blur(2px);
+}
+
 .card-title {
   font-family: var(--font-head);
   font-size: 18px;
