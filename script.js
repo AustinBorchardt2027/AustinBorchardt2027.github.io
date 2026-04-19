@@ -1955,13 +1955,7 @@ function presenceChartOptions() {
   base.scales.x.ticks = {
     color: '#78788f',
     font: { family: 'DM Mono', size: 10 },
-    maxTicksLimit: 24,
-    callback: function(val, index) {
-      // val is the index; get the label string (HH:MM)
-      const label = this.getLabelForValue(val);
-      // Only show labels on the hour (mm === '00')
-      return label && label.slice(3) === '00' ? label : '';
-    }
+    maxTicksLimit: 10,
   };
   return base;
 }
