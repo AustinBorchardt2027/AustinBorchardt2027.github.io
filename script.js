@@ -439,7 +439,13 @@ function applyDriveData(rawData, csvRows) {
   // The user's personal requested-set (userRequested) is stored separately
   // and never wiped, so their "✓ REQUESTED" state survives refreshes.
   if (rawData.requests) {
-    requestCounts = { ...rawData.requests };
+    // Normalize every key from the server so they match getRequestCount's normalize() lookup.
+    // Server may store keys as "Inception", "inception", "the dark knight", etc — all get
+    // collapsed to the same lowercase alphanumeric form used everywhere else.
+    requestCounts = {};
+    for (const [k, v] of Object.entries(rawData.requests)) {
+      requestCounts[normalize(k)] = v;
+    }
   }
   const videoMimeTypes = ['video/', 'application/octet-stream'];
   const driveMap = Object.fromEntries(
