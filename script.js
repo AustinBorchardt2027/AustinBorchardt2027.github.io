@@ -675,6 +675,18 @@ function parseSizeGB(sizeStr) {
   return n;
 }
 
+/** Parse runtime string to total minutes for sorting (e.g. "2h 18m", "138 min", "138") */
+function parseRuntimeMinutes(str) {
+  if (!str) return 0;
+  const hm = str.match(/(\d+)\s*h(?:r|ours?)?\s*(\d+)?\s*m?/i);
+  if (hm) return parseInt(hm[1]) * 60 + (parseInt(hm[2]) || 0);
+  const m = str.match(/(\d+)/);
+  return m ? parseInt(m[1]) : 0;
+}
+
+/** Maturity rating sort order */
+const MATURITY_ORDER = { 'G': 1, 'PG': 2, 'PG-13': 3, 'PG13': 3, 'R': 4, 'NC-17': 5, 'NR': 6 };
+
 /** IMDb rating CSS class */
 function imdbClass(rating) {
   const r = parseFloat(rating);
@@ -1089,6 +1101,9 @@ function applySort() {
     else if (key === 'size') { va = parseSizeGB(a.fileSize); vb = parseSizeGB(b.fileSize); }
     else if (key === 'requests') { va = getRequestCount(a.title); vb = getRequestCount(b.title); }
     else if (key === 'rating') { va = getRatingScore(a.title); vb = getRatingScore(b.title); }
+    else if (key === 'runtime') { va = parseRuntimeMinutes(a.runtime); vb = parseRuntimeMinutes(b.runtime); }
+    else if (key === 'maturity') { va = MATURITY_ORDER[a.maturityRating?.toUpperCase().replace(/[\s-]/g,'')] || 99; vb = MATURITY_ORDER[b.maturityRating?.toUpperCase().replace(/[\s-]/g,'')] || 99; }
+    else if (key === 'status') { va = a.available ? 0 : 1; vb = b.available ? 0 : 1; }
 
     if (va < vb) return dir === 'asc' ? -1 : 1;
     if (va > vb) return dir === 'asc' ? 1 : -1;
