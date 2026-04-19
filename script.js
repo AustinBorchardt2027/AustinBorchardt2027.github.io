@@ -1849,9 +1849,35 @@ function renderPresenceChart(presence) {
   const canvas = document.getElementById('chart-presence');
   if (!canvas) return;
 
+  // Fill gaps: if two consecutive points are more than 20s apart,
+  // insert a 0 immediately after the first and before the second.
+  const INTERVAL_MS = 10 * 1000; // expected ping every 10s
+  const GAP_THRESH  = INTERVAL_MS * 2; // 20s = one missed ping = treat as gap
+
+  function tsToMs(ts) {
+    // ts is "yyyy-MM-dd HH:mm:ss"
+    return new Date(ts.replace(' ', 'T')).getTime();
+  }
+
+  const filled = [];
+  for (let i = 0; i < presence.length; i++) {
+    filled.push(presence[i]);
+    if (i < presence.length - 1) {
+      const gap = tsToMs(presence[i + 1].ts) - tsToMs(presence[i].ts);
+      if (gap > GAP_THRESH) {
+        // Insert a zero at the gap boundary (just after the last known point)
+        const afterTs = new Date(tsToMs(presence[i].ts) + INTERVAL_MS);
+        const pad = n => String(n).padStart(2, '0');
+        const afterLabel = pad(afterTs.getHours()) + ':' + pad(afterTs.getMinutes()) + ':' + pad(afterTs.getSeconds());
+        const fakeTs = presence[i].ts.slice(0, 11) + afterLabel;
+        filled.push({ ts: fakeTs, online: 0 });
+      }
+    }
+  }
+
   // Sample down to at most 500 points for performance
-  const step   = Math.max(1, Math.floor(presence.length / 500));
-  const sampled = presence.filter((_, i) => i % step === 0);
+  const step    = Math.max(1, Math.floor(filled.length / 500));
+  const sampled = filled.filter((_, i) => i % step === 0);
 
   const labels = sampled.map(p => p.ts.slice(11, 16)); // HH:MM
   const data   = sampled.map(p => p.online);
@@ -1867,11 +1893,11 @@ function renderPresenceChart(presence) {
         backgroundColor: 'rgba(62,207,116,0.10)',
         borderWidth: 2,
         pointRadius: 0,
-        tension: 0.2,
+        tension: 0,   // no smoothing — gaps should be sharp drops to 0
         fill: true,
       }]
     },
-    options: chartOptions('Users')
+    options: presenceChartOptions()
   };
 
   if (chartPresence) chartPresence.destroy();
@@ -1916,6 +1942,23 @@ function chartOptions(yLabel) {
   };
 }
 
+function presenceChartOptions() {
+  const base = chartOptions('Users');
+  // Show time-of-day ticks every hour on the x-axis
+  base.scales.x.ticks = {
+    color: '#78788f',
+    font: { family: 'DM Mono', size: 10 },
+    maxTicksLimit: 24,
+    callback: function(val, index) {
+      // val is the index; get the label string (HH:MM)
+      const label = this.getLabelForValue(val);
+      // Only show labels on the hour (mm === '00')
+      return label && label.slice(3) === '00' ? label : '';
+    }
+  };
+  return base;
+}
+
 // ── Push presence ping (called every 10s) ──
 function pushPresencePing() {
   const onlineEl = document.getElementById('online-count');
@@ -1932,14 +1975,25 @@ function pushPresencePing() {
     if (script.parentNode) script.parentNode.removeChild(script);
     // Live-append to the presence chart if it's already rendered
     if (chartPresence) {
-      const now  = new Date();
-      const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      chartPresence.data.labels.push(hhmm);
-      chartPresence.data.datasets[0].data.push(count);
-      if (chartPresence.data.labels.length > 500) {
-        chartPresence.data.labels.shift();
-        chartPresence.data.datasets[0].data.shift();
+      const now    = new Date();
+      const pad    = n => String(n).padStart(2, '0');
+      const hhmm   = pad(now.getHours()) + ':' + pad(now.getMinutes());
+      const labels = chartPresence.data.labels;
+      const vals   = chartPresence.data.datasets[0].data;
+      // If the last label is more than ~20s behind, insert a zero first
+      if (labels.length > 0) {
+        const last     = labels[labels.length - 1]; // HH:MM
+        const lastDate = new Date();
+        lastDate.setHours(parseInt(last.slice(0, 2), 10), parseInt(last.slice(3), 10), 0, 0);
+        if (now - lastDate > 20000) {
+          const zeroTime = new Date(lastDate.getTime() + 10000);
+          labels.push(pad(zeroTime.getHours()) + ':' + pad(zeroTime.getMinutes()));
+          vals.push(0);
+        }
       }
+      labels.push(hhmm);
+      vals.push(count);
+      if (labels.length > 500) { labels.shift(); vals.shift(); }
       chartPresence.update('none');
     }
   };
