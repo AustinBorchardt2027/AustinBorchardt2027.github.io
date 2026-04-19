@@ -1635,6 +1635,7 @@ function pingHeartbeat() {
 // ─── STATS TAB ────────────────────────────────────────────────
 
 let statsLoaded    = false;
+let statsLoadedAt  = 0;
 let chartLibrary   = null;
 let chartPresence  = null;
 
@@ -1642,9 +1643,10 @@ function initStatsTab() {
   // Render local stats immediately from allMovies (no network needed)
   renderLocalStats();
   // Then fetch server stats (snapshots, presence, device count)
-  if (!statsLoaded && DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
+  if ((!statsLoaded || Date.now() - statsLoadedAt > 60000) && DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
     fetchStatsData();
-    statsLoaded = true;
+    statsLoaded   = true;
+    statsLoadedAt = Date.now();
   }
 }
 
@@ -1723,6 +1725,7 @@ function fetchStatsData() {
     if (typeof data.uniqueDevices === 'number') setText('stat-total-users', data.uniqueDevices);
     if (data.snapshots && data.snapshots.length) renderLibraryChart(data.snapshots);
     if (data.presence  && data.presence.length)  renderPresenceChart(data.presence);
+    else showPresencePlaceholder();
   };
   script.src = DRIVE_SCRIPT_URL
     + '?action=getStatsData'
@@ -1778,7 +1781,34 @@ function renderLibraryChart(snapshots) {
 }
 
 // ── Presence history chart ──
+function showPresencePlaceholder() {
+  const canvas = document.getElementById('chart-presence');
+  if (!canvas) return;
+  const wrap = canvas.closest('.chart-wrap');
+  if (!wrap) return;
+  // Hide canvas, show a styled placeholder message
+  canvas.style.display = 'none';
+  if (!wrap.querySelector('.presence-placeholder')) {
+    const msg = document.createElement('div');
+    msg.className = 'presence-placeholder';
+    msg.innerHTML = `<span class="presence-placeholder-icon">◎</span><p>No history yet — data will appear here as users come online.</p>`;
+    wrap.appendChild(msg);
+  }
+}
+
+function showPresenceCanvas() {
+  const canvas = document.getElementById('chart-presence');
+  if (!canvas) return;
+  canvas.style.display = '';
+  const wrap = canvas.closest('.chart-wrap');
+  if (wrap) {
+    const ph = wrap.querySelector('.presence-placeholder');
+    if (ph) ph.remove();
+  }
+}
+
 function renderPresenceChart(presence) {
+  showPresenceCanvas();
   const canvas = document.getElementById('chart-presence');
   if (!canvas) return;
 
@@ -1863,6 +1893,18 @@ function pushPresencePing() {
     clearTimeout(timer);
     delete window[cbName];
     if (script.parentNode) script.parentNode.removeChild(script);
+    // Live-append to the presence chart if it's already rendered
+    if (chartPresence) {
+      const now  = new Date();
+      const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      chartPresence.data.labels.push(hhmm);
+      chartPresence.data.datasets[0].data.push(count);
+      if (chartPresence.data.labels.length > 500) {
+        chartPresence.data.labels.shift();
+        chartPresence.data.datasets[0].data.shift();
+      }
+      chartPresence.update('none');
+    }
   };
   script.src = DRIVE_SCRIPT_URL
     + '?action=recordPresence'
