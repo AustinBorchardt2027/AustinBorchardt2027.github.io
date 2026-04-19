@@ -1637,6 +1637,7 @@ function pingHeartbeat() {
 let statsLoaded    = false;
 let statsLoadedAt  = 0;
 let chartLibrary   = null;
+let chartUsers     = null;
 let chartPresence  = null;
 
 function initStatsTab() {
@@ -1727,8 +1728,9 @@ function fetchStatsData() {
     if (script.parentNode) script.parentNode.removeChild(script);
     if (!data) return;
     if (typeof data.uniqueDevices === 'number') setText('stat-total-users', data.uniqueDevices);
-    if (data.snapshots && data.snapshots.length) renderLibraryChart(data.snapshots);
-    if (data.presence  && data.presence.length)  renderPresenceChart(data.presence);
+    if (data.snapshots    && data.snapshots.length)    renderLibraryChart(data.snapshots);
+    if (data.userHistory  && data.userHistory.length)  renderUserChart(data.userHistory);
+    if (data.presence     && data.presence.length)     renderPresenceChart(data.presence);
     else showPresencePlaceholder();
   };
   script.src = DRIVE_SCRIPT_URL
@@ -1782,6 +1784,37 @@ function renderLibraryChart(snapshots) {
 
   if (chartLibrary) chartLibrary.destroy();
   chartLibrary = new Chart(canvas, cfg);
+}
+
+// ── Unique user growth chart ──
+function renderUserChart(userHistory) {
+  const canvas = document.getElementById('chart-users');
+  if (!canvas) return;
+
+  const labels = userHistory.map(u => u.date);
+  const data   = userHistory.map(u => u.users);
+
+  const cfg = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Unique Users',
+        data,
+        borderColor: '#e8c547',
+        backgroundColor: 'rgba(232,197,71,0.10)',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointBackgroundColor: '#e8c547',
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: chartOptions('Users')
+  };
+
+  if (chartUsers) chartUsers.destroy();
+  chartUsers = new Chart(canvas, cfg);
 }
 
 // ── Presence history chart ──
