@@ -256,6 +256,12 @@ function hasUserRequested(title) {
 }
 
 // ── Server counts ──
+function getRatingScore(title) {
+  const r = allRatings[normalize(title)];
+  if (!r) return 0;
+  return (r.up || 0) - (r.down || 0);
+}
+
 function getRequestCount(title) {
   return requestCounts[normalize(title)] || 0;
 }
@@ -950,6 +956,7 @@ function applySort() {
     else if (key === 'year') { va = parseInt(a.year) || 0; vb = parseInt(b.year) || 0; }
     else if (key === 'size') { va = parseSizeGB(a.fileSize); vb = parseSizeGB(b.fileSize); }
     else if (key === 'requests') { va = getRequestCount(a.title); vb = getRequestCount(b.title); }
+    else if (key === 'rating') { va = getRatingScore(a.title); vb = getRatingScore(b.title); }
 
     if (va < vb) return dir === 'asc' ? -1 : 1;
     if (va > vb) return dir === 'asc' ? 1 : -1;
