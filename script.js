@@ -10,6 +10,146 @@ const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFb
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
 const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwQ8GKmR5MalfoYgp9Uuz5eBSqe0A-s_GM61NQD1-uQyyAAK6rcZGbtl128N_Cog9eUag/exec';
 
+
+// ─── ACCESS KEY GATE ──────────────────────────────────────────
+// Keys are validated against the "Keys" sheet via the Apps Script.
+// Once validated, the key is saved to localStorage permanently.
+// "Uses" = number of unique devices/browsers that have authenticated
+// with this key. Re-visits from the same device never increment the
+// count — the gate is skipped entirely if the key is already saved locally.
+
+const LOCAL_KEY_STORE = 'thedrive_access_key_v1';
+
+function getSavedKey() {
+  try { return localStorage.getItem(LOCAL_KEY_STORE) || null; } catch(e) { return null; }
+}
+function saveKey(key) {
+  try { localStorage.setItem(LOCAL_KEY_STORE, key); } catch(e) {}
+}
+
+/**
+ * Call the Apps Script via JSONP to validate or consume a key.
+ * action = 'validateKey' | 'useKey'
+ */
+function callKeyAction(action, keyStr) {
+  return new Promise((resolve) => {
+    const cbName = '__keyCallback_' + Date.now();
+    const script = document.createElement('script');
+    const timer  = setTimeout(() => {
+      cleanup();
+      resolve({ error: 'timeout' });
+    }, 12000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    window[cbName] = function(data) { cleanup(); resolve(data); };
+    script.src = DRIVE_SCRIPT_URL
+      + '?action=' + action
+      + '&key='    + encodeURIComponent(keyStr)
+      + '&callback=' + cbName
+      + '&_cb=' + Date.now();
+    script.onerror = () => { cleanup(); resolve({ error: 'network' }); };
+    document.head.appendChild(script);
+  });
+}
+
+let gateResolveFn = null; // resolved when the gate is passed
+
+function showGate() {
+  return new Promise(resolve => {
+    gateResolveFn = resolve;
+    const overlay   = document.getElementById('gate-overlay');
+    const input     = document.getElementById('gate-key-input');
+    const submitBtn = document.getElementById('gate-submit');
+    const errorEl   = document.getElementById('gate-error');
+
+    if (!overlay) { resolve(); return; } // no gate in HTML, skip
+
+    overlay.classList.remove('gate-overlay-hidden');
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.hidden = false;
+      input.style.borderColor = 'var(--red)';
+      submitBtn.classList.remove('loading');
+      submitBtn.textContent = 'ENTER THE DRIVE';
+    }
+
+    function clearError() {
+      errorEl.hidden = true;
+      input.style.borderColor = '';
+    }
+
+    input.addEventListener('input', clearError);
+
+    async function attempt() {
+      const keyStr = input.value.trim().toUpperCase();
+      if (!keyStr) { showError('Please enter your access key.'); return; }
+
+      submitBtn.classList.add('loading');
+      submitBtn.textContent = 'CHECKING…';
+      clearError();
+
+      // First validate (read-only check)
+      const validation = await callKeyAction('validateKey', keyStr);
+
+      if (validation.error) {
+        showError('Could not reach the server. Check your connection and try again.');
+        return;
+      }
+
+      if (!validation.valid) {
+        if (validation.reason === 'expired') {
+          showError('This key has reached its device limit. Please request a new key.');
+        } else {
+          showError('Invalid key. Please check and try again.');
+        }
+        return;
+      }
+
+      // Key is valid — consume it (counts this as one new device)
+      const consume = await callKeyAction('useKey', keyStr);
+      if (!consume.success && consume.reason === 'expired') {
+        // Race condition — another device used the last slot between validate and consume
+        showError('This key just hit its device limit. Please request a new key.');
+        return;
+      }
+
+      // Success — save locally and dismiss gate
+      saveKey(keyStr);
+      overlay.classList.add('gate-overlay-hidden');
+      setTimeout(() => { overlay.style.display = 'none'; }, 350);
+      resolve();
+    }
+
+    submitBtn.addEventListener('click', attempt);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
+
+    // Auto-focus the input
+    setTimeout(() => input.focus(), 100);
+  });
+}
+
+async function initWithGate() {
+  const savedKey = getSavedKey();
+
+  if (savedKey) {
+    // Key already saved — hide the gate immediately and proceed
+    const overlay = document.getElementById('gate-overlay');
+    if (overlay) {
+      overlay.classList.add('gate-overlay-hidden');
+      overlay.style.display = 'none';
+    }
+  } else {
+    // No saved key — show gate and wait for it to be passed
+    await showGate();
+  }
+}
+
 // ─── DEMO DATA ────────────────────────────────────────────────
 const DEMO_MOVIES = [
   { title: "Inception", resolution: "4K", maturityRating: "PG-13", releaseDate: "2010-07-16", fileSize: "58 GB", imdbRating: "8.8" },
@@ -880,7 +1020,7 @@ if (refreshBtn) {
 
 // ─── INIT ─────────────────────────────────────────────────────
 
-(function init() {
+(async function init() {
   const modal = $('config-modal');
   if (modal) modal.classList.add('hidden');
 
@@ -899,5 +1039,9 @@ if (refreshBtn) {
     currentSort = 'imdb-desc';
   }
 
+  // Show the access gate if no key is saved locally
+  await initWithGate();
+
+  // Only load data after the gate is passed
   loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL);
 })();
