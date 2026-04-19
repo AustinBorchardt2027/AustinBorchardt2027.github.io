@@ -1881,7 +1881,13 @@ function renderPresenceChart(presence) {
     const m = String(p.ts).match(/(\d{1,2}:\d{2})(?::\d{2})?/);
     return m ? m[1] : '';
   });
-  const values = sampled.map(p => p.online);
+  const rawValues = sampled.map(p => p.online);
+  // 3-point rolling average to smooth out single-sample spikes
+  const values = rawValues.map((v, i, arr) => {
+    const prev = arr[i - 1] !== undefined ? arr[i - 1] : v;
+    const next = arr[i + 1] !== undefined ? arr[i + 1] : v;
+    return Math.round((prev + v + next) / 3 * 10) / 10;
+  });
   const labels = sampled.map((_, i) => i);
 
   const cfg = {
