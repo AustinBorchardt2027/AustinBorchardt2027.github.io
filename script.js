@@ -149,6 +149,41 @@ async function postRequest(title) {
 // requestCounts starts empty — server data fills it in applyDriveData()
 requestCounts = {};
 
+// ─── SETTINGS PERSISTENCE ────────────────────────────────────
+const LOCAL_SETTINGS_KEY = 'thedrive_settings_v1';
+
+function saveSettings() {
+  try {
+    localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify({
+      search:     searchInput.value,
+      resolution: filterRes.value,
+      maturity:   filterMat.value,
+      status:     filterStat.value,
+      sort:       sortBy.value,
+      view:       currentView,
+    }));
+  } catch(e) {}
+}
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY) || 'null'); } catch(e) { return null; }
+}
+
+function applySettings(s) {
+  if (!s) return;
+  if (s.search)     { searchInput.value = s.search; clearSearch.classList.toggle('visible', s.search.length > 0); }
+  if (s.resolution) filterRes.value  = s.resolution;
+  if (s.maturity)   filterMat.value  = s.maturity;
+  if (s.status)     filterStat.value = s.status;
+  if (s.sort)       { sortBy.value = s.sort; currentSort = s.sort; }
+  if (s.view && s.view !== currentView) {
+    currentView = s.view;
+    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === s.view));
+    tableView.classList.toggle('active', s.view === 'table');
+    gridView.classList.toggle('active',  s.view === 'grid');
+  }
+}
+
 // ─── DOM REFS ─────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
 const tableBody   = $('table-body');
@@ -727,23 +762,25 @@ let searchTimer;
 searchInput.addEventListener('input', () => {
   clearSearch.classList.toggle('visible', searchInput.value.length > 0);
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => render(), 200);
+  searchTimer = setTimeout(() => { render(); saveSettings(); }, 200);
 });
 
 clearSearch.addEventListener('click', () => {
   searchInput.value = '';
   clearSearch.classList.remove('visible');
   render();
+  saveSettings();
   searchInput.focus();
 });
 
 // Filters / sort
-filterRes.addEventListener('change', render);
-filterMat.addEventListener('change', render);
-filterStat.addEventListener('change', render);
+filterRes.addEventListener('change',  () => { render(); saveSettings(); });
+filterMat.addEventListener('change',  () => { render(); saveSettings(); });
+filterStat.addEventListener('change', () => { render(); saveSettings(); });
 sortBy.addEventListener('change', () => {
   currentSort = sortBy.value;
   applySort();
+  saveSettings();
 });
 
 // Column header sort
@@ -762,6 +799,7 @@ document.querySelectorAll('th.sortable').forEach(th => {
     document.querySelectorAll('th.sortable').forEach(t => t.classList.remove('sort-active'));
     th.classList.add('sort-active');
     applySort();
+    saveSettings();
   });
 });
 
@@ -776,6 +814,7 @@ document.querySelectorAll('.toggle-btn').forEach(btn => {
     tableView.classList.toggle('active', v === 'table');
     gridView.classList.toggle('active', v === 'grid');
     renderCurrentView();
+    saveSettings();
   });
 });
 
@@ -844,8 +883,14 @@ if (refreshBtn) {
   $('btn-table').classList.remove('active');
   $('btn-grid').classList.add('active');
 
-  // Set default sort to IMDb descending
-  sortBy.value = 'imdb-desc';
+  // Restore saved settings, or fall back to defaults
+  const savedSettings = loadSettings();
+  if (savedSettings) {
+    applySettings(savedSettings);
+  } else {
+    sortBy.value = 'imdb-desc';
+    currentSort = 'imdb-desc';
+  }
 
   loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL);
 })();
