@@ -648,7 +648,7 @@ function fetchScriptJSON(url, bustCache = false) {
   });
 }
 
-const CACHE_KEY   = 'thedrive_cache_v2';
+const CACHE_KEY   = 'thedrive_cache_v3';
 const CACHE_MAX_AGE = 5 * 60 * 1000; // 5 minutes
 
 function saveCache(data) {
