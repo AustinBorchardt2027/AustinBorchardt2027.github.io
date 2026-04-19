@@ -1636,9 +1636,10 @@ function pingHeartbeat() {
 
 let statsLoaded    = false;
 let statsLoadedAt  = 0;
-let chartLibrary   = null;
-let chartUsers     = null;
-let chartPresence  = null;
+let chartLibrary        = null;
+let chartUsers          = null;
+let chartPresence       = null;
+let lastPresenceAppendAt = 0; // ms timestamp of the last live-appended point
 
 function initStatsTab() {
   // Render local stats immediately from allMovies (no network needed)
@@ -1852,7 +1853,7 @@ function renderPresenceChart(presence) {
   // Fill gaps: if two consecutive points are more than 20s apart,
   // insert a 0 immediately after the first and before the second.
   const INTERVAL_MS = 10 * 1000; // expected ping every 10s
-  const GAP_THRESH  = INTERVAL_MS * 2; // 20s = one missed ping = treat as gap
+  const GAP_THRESH  = INTERVAL_MS * 2; // >20s between points = treat as gap
 
   function tsToMs(ts) {
     // ts is "yyyy-MM-dd HH:mm:ss"
@@ -1902,6 +1903,12 @@ function renderPresenceChart(presence) {
 
   if (chartPresence) chartPresence.destroy();
   chartPresence = new Chart(canvas, cfg);
+  lastPresenceAppendAt = Date.now();
+  // Seed last ping time from the final data point so live-append gap detection works correctly
+  if (presence.length > 0) {
+    const lastTs = presence[presence.length - 1].ts;
+    chartPresence._lastPingTime = new Date(lastTs.replace(' ', 'T'));
+  }
 }
 
 function chartOptions(yLabel) {
@@ -1961,18 +1968,21 @@ function presenceChartOptions() {
 
 // ── Push presence ping (called every 10s) ──
 function pushPresencePing() {
-  const onlineEl = document.getElementById('online-count');
-  const count    = onlineEl ? (parseInt(onlineEl.textContent, 10) || 0) : 0;
   const cbName   = '__presencePingCallback_' + Date.now();
   const script   = document.createElement('script');
   const timer    = setTimeout(() => {
     delete window[cbName];
     if (script.parentNode) script.parentNode.removeChild(script);
   }, 8000);
-  window[cbName] = function() {
+  window[cbName] = function(resp) {
     clearTimeout(timer);
     delete window[cbName];
     if (script.parentNode) script.parentNode.removeChild(script);
+    // Use the authoritative count from the server response
+    const serverCount = (resp && typeof resp.online === 'number') ? resp.online : 0;
+    // Update the header online count display
+    const onlineEl = document.getElementById('online-count');
+    if (onlineEl) onlineEl.textContent = serverCount;
     // Live-append to the presence chart if it's already rendered
     if (chartPresence) {
       const now    = new Date();
@@ -1980,26 +1990,21 @@ function pushPresencePing() {
       const hhmm   = pad(now.getHours()) + ':' + pad(now.getMinutes());
       const labels = chartPresence.data.labels;
       const vals   = chartPresence.data.datasets[0].data;
-      // If the last label is more than ~20s behind, insert a zero first
-      if (labels.length > 0) {
-        const last     = labels[labels.length - 1]; // HH:MM
-        const lastDate = new Date();
-        lastDate.setHours(parseInt(last.slice(0, 2), 10), parseInt(last.slice(3), 10), 0, 0);
-        if (now - lastDate > 20000) {
-          const zeroTime = new Date(lastDate.getTime() + 10000);
-          labels.push(pad(zeroTime.getHours()) + ':' + pad(zeroTime.getMinutes()));
-          vals.push(0);
-        }
+      // Insert a zero if more than 20s has passed since the last point
+      if (lastPresenceAppendAt > 0 && (now.getTime() - lastPresenceAppendAt) > 20000) {
+        const zeroTime = new Date(lastPresenceAppendAt + 10000);
+        labels.push(pad(zeroTime.getHours()) + ':' + pad(zeroTime.getMinutes()));
+        vals.push(0);
       }
       labels.push(hhmm);
-      vals.push(count);
+      vals.push(serverCount);
+      lastPresenceAppendAt = now.getTime();
       if (labels.length > 500) { labels.shift(); vals.shift(); }
       chartPresence.update('none');
     }
   };
   script.src = DRIVE_SCRIPT_URL
     + '?action=recordPresence'
-    + '&count='    + encodeURIComponent(count)
     + '&callback=' + cbName
     + '&_cb='      + Date.now();
   script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
