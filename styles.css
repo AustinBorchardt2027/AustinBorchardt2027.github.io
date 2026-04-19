@@ -486,6 +486,19 @@ tbody tr:hover td { background: var(--surface2); }
   color: var(--text-dim);
 }
 
+.td-runtime {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.card-runtime {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
 .td-size {
   font-family: var(--font-mono);
   font-size: 11px;
