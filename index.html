@@ -71,16 +71,19 @@
   <section class="controls-section">
     <div class="controls-inner">
 
-      <div class="search-wrap">
-        <span class="search-icon">⌕</span>
-        <input
-          type="text"
-          id="search-input"
-          placeholder="Search titles…"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button class="clear-search" id="clear-search" title="Clear">✕</button>
+      <div class="filter-group search-group">
+        <label class="filter-label">SEARCH</label>
+        <div class="search-wrap">
+          <span class="search-icon">⌕</span>
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search titles…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button class="clear-search" id="clear-search" title="Clear">✕</button>
+        </div>
       </div>
 
       <div class="filter-group">
@@ -122,13 +125,16 @@
       </div>
 
       <!-- View toggle -->
-      <div class="view-toggle" role="group" aria-label="View mode">
-        <button class="toggle-btn active" id="btn-table" title="Table view" data-view="table">
-          ☰
-        </button>
-        <button class="toggle-btn" id="btn-grid" title="Grid view" data-view="grid">
-          ⊞
-        </button>
+      <div class="filter-group view-group">
+        <label class="filter-label">VIEW</label>
+        <div class="view-toggle" role="group" aria-label="View mode">
+          <button class="toggle-btn active" id="btn-table" title="Table view" data-view="table">
+            ☰
+          </button>
+          <button class="toggle-btn" id="btn-grid" title="Grid view" data-view="grid">
+            ⊞
+          </button>
+        </div>
       </div>
 
     </div>
