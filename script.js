@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw-nnYN0aMTS3LARmBALwoDRfGNSXTfPcFzM22s0yhhOjBS6wDGfYWByLAWH3JodUSjJw/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzQN5cQN1gUZaf0Wtawf69TSA-lBcpMxJ6e5a9ke4id_NPBjJm-3p8rg5CI37xeNH2vbg/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -18,13 +18,40 @@ const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw-nnYN0aMTS3L
 // with this key. Re-visits from the same device never increment the
 // count — the gate is skipped entirely if the key is already saved locally.
 
-const LOCAL_KEY_STORE = 'thedrive_access_key_v1';
+const LOCAL_KEY_STORE    = 'thedrive_access_key_v1';
+const LOCAL_DEVICE_ID    = 'thedrive_device_id_v1';
 
 function getSavedKey() {
   try { return localStorage.getItem(LOCAL_KEY_STORE) || null; } catch(e) { return null; }
 }
 function saveKey(key) {
   try { localStorage.setItem(LOCAL_KEY_STORE, key); } catch(e) {}
+}
+
+/**
+ * Returns the persistent device ID for this browser.
+ * Generated once using crypto.randomUUID (or a fallback) and stored forever.
+ * Format: did-<8 hex chars>-<4 hex chars>-<4 hex chars>-<12 hex chars>
+ */
+function getDeviceId() {
+  try {
+    let did = localStorage.getItem(LOCAL_DEVICE_ID);
+    if (!did) {
+      if (crypto && crypto.randomUUID) {
+        did = 'did-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+      } else {
+        // Fallback for older browsers
+        did = 'did-' + Array.from(
+          { length: 12 },
+          () => Math.floor(Math.random() * 16).toString(16)
+        ).join('').toUpperCase();
+      }
+      localStorage.setItem(LOCAL_DEVICE_ID, did);
+    }
+    return did;
+  } catch(e) {
+    return 'did-UNKNOWN';
+  }
 }
 
 /**
@@ -51,6 +78,7 @@ function callKeyAction(action, keyStr, existing) {
       + '?action=' + action
       + '&key='    + encodeURIComponent(keyStr)
       + (existing ? '&existing=1' : '')
+      + '&did='    + encodeURIComponent(getDeviceId())
       + '&callback=' + cbName
       + '&_cb=' + Date.now();
     script.onerror = () => { cleanup(); resolve({ error: 'network' }); };
@@ -320,6 +348,7 @@ async function postRequest(title) {
       + '?action=request'
       + '&title=' + encodeURIComponent(title)
       + '&key='   + encodeURIComponent(getSavedKey() || '')
+      + '&did='   + encodeURIComponent(getDeviceId())
       + '&callback=' + cbName;
     script.src = url;
     script.onerror = () => { cleanup(); resolve(localCount); };
@@ -392,6 +421,7 @@ async function postRating(title, type) {
       + '&type='  + encodeURIComponent(type)
       + '&prev='  + encodeURIComponent(prev || '')
       + '&key='   + encodeURIComponent(getSavedKey() || '')
+      + '&did='   + encodeURIComponent(getDeviceId())
       + '&callback=' + cbName;
     script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); resolve(); };
     document.head.appendChild(script);
@@ -595,6 +625,7 @@ function logClientEvent(event, detail) {
     + '&event='  + encodeURIComponent(event)
     + '&detail=' + encodeURIComponent(detail || '')
     + '&key='    + encodeURIComponent(getSavedKey() || '')
+    + '&did='    + encodeURIComponent(getDeviceId())
     + '&callback=' + cbName;
   script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); };
   document.head.appendChild(script);
@@ -781,7 +812,7 @@ function fetchRatings(scriptURL, isRefresh = false) {
       }
       resolve();
     };
-    script.src = scriptURL + '?action=getRatings&key=' + encodeURIComponent(getSavedKey() || '') + '&refresh=' + (isRefresh ? '1' : '0') + '&callback=' + cbName + '&_cb=' + Date.now();
+    script.src = scriptURL + '?action=getRatings&key=' + encodeURIComponent(getSavedKey() || '') + '&did=' + encodeURIComponent(getDeviceId()) + '&refresh=' + (isRefresh ? '1' : '0') + '&callback=' + cbName + '&_cb=' + Date.now();
     script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); resolve(); };
     document.head.appendChild(script);
   });
@@ -1211,6 +1242,7 @@ $('main-content').addEventListener('click', e => {
     + '?action=openLink'
     + '&title=' + encodeURIComponent(title)
     + '&key='   + encodeURIComponent(key)
+    + '&did='   + encodeURIComponent(getDeviceId())
     + '&callback=' + cbName;
   script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); };
   document.head.appendChild(script);
@@ -1336,6 +1368,7 @@ function setRequestedState(title, count) {
           + '&name='    + encodeURIComponent(name)
           + '&message=' + encodeURIComponent(message)
           + '&key='     + encodeURIComponent(key)
+          + '&did='     + encodeURIComponent(getDeviceId())
           + '&callback=' + cbName
           + '&_cb='     + Date.now();
         script.onerror = () => { cleanup(); reject(new Error('network')); };
