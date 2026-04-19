@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxJ_r2mWynf0YqcPz2Gmo4MOhl4ElrowNc1eQUSbGKx6xi4hcTX2Ni01YMzeDTrtpvM/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxwzwf6yEZId89cLx3JMy_UW6-mI2fDS-LihQp4mK3Zf6xsZp93yJoBcaSeII5lN2ruSw/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -1263,6 +1263,73 @@ function setRequestedState(title, count) {
     b.dataset.title = title;
   });
 }
+
+// ─── FOOTER COMMENT FORM ─────────────────────────────────────
+(function() {
+  const submitBtn = document.getElementById('footer-submit');
+  const nameInput = document.getElementById('footer-name');
+  const msgInput  = document.getElementById('footer-message');
+  const statusEl  = document.getElementById('footer-form-status');
+
+  if (!submitBtn) return;
+
+  function setStatus(msg, type) {
+    statusEl.textContent = msg;
+    statusEl.className = 'footer-form-status ' + type;
+    statusEl.hidden = false;
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    const message = (msgInput.value || '').trim();
+    if (!message) { setStatus('Please enter a message before sending.', 'error'); msgInput.focus(); return; }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'SENDING…';
+    statusEl.hidden = true;
+
+    const name = (nameInput.value || '').trim() || 'Anonymous';
+    const key  = getSavedKey() || '';
+
+    try {
+      await new Promise((resolve, reject) => {
+        const cbName = '__formCallback_' + Date.now();
+        const script = document.createElement('script');
+        const timer  = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 12000);
+
+        function cleanup() {
+          clearTimeout(timer);
+          delete window[cbName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        window[cbName] = function(data) {
+          cleanup();
+          if (data && data.ok) resolve();
+          else reject(new Error(data && data.error ? data.error : 'unknown'));
+        };
+
+        script.src = DRIVE_SCRIPT_URL
+          + '?action=submitForm'
+          + '&name='    + encodeURIComponent(name)
+          + '&message=' + encodeURIComponent(message)
+          + '&key='     + encodeURIComponent(key)
+          + '&callback=' + cbName
+          + '&_cb='     + Date.now();
+        script.onerror = () => { cleanup(); reject(new Error('network')); };
+        document.head.appendChild(script);
+      });
+
+      setStatus('✓ Message sent — thanks!', 'success');
+      nameInput.value = '';
+      msgInput.value  = '';
+    } catch(err) {
+      setStatus('Something went wrong. Please try again.', 'error');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'SEND';
+    }
+  });
+})();
 
 // ─── REFRESH BUTTON ───────────────────────────────────────────
 if (refreshBtn) {
