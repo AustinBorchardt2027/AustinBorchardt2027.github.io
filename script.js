@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzJbZleTiMzR2sbTU_1SH7ogMZ9oDUQpNnQTCfhUK1_gbaWH68uaDth21JE7EIexjt19Q/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw-nnYN0aMTS3LARmBALwoDRfGNSXTfPcFzM22s0yhhOjBS6wDGfYWByLAWH3JodUSjJw/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -31,7 +31,7 @@ function saveKey(key) {
  * Call the Apps Script via JSONP to validate or consume a key.
  * action = 'validateKey' | 'useKey'
  */
-function callKeyAction(action, keyStr) {
+function callKeyAction(action, keyStr, existing) {
   return new Promise((resolve) => {
     const cbName = '__keyCallback_' + Date.now();
     const script = document.createElement('script');
@@ -50,6 +50,7 @@ function callKeyAction(action, keyStr) {
     script.src = DRIVE_SCRIPT_URL
       + '?action=' + action
       + '&key='    + encodeURIComponent(keyStr)
+      + (existing ? '&existing=1' : '')
       + '&callback=' + cbName
       + '&_cb=' + Date.now();
     script.onerror = () => { cleanup(); resolve({ error: 'network' }); };
@@ -157,7 +158,7 @@ async function initWithGate() {
       if (input)     { input.value = savedKey; input.disabled = true; }
     }
 
-    const validation = await callKeyAction('validateKey', savedKey);
+    const validation = await callKeyAction('validateKey', savedKey, true);
 
     if (validation.valid || validation.error) {
       // Valid (or server unreachable — give benefit of the doubt) — proceed silently
