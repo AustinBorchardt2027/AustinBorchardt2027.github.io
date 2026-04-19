@@ -1102,9 +1102,7 @@ tbody tr:hover td { background: var(--surface2); }
   line-height: 1;
 }
 
-.rating-count:empty {
-  display: none;
-}
+/* .rating-count always visible */
 
 /* Table: watch link + ratings side by side */
 .td-link-inner {
