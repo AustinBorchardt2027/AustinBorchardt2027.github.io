@@ -1052,10 +1052,18 @@ function renderGrid() {
     card.style.animationDelay = Math.min(i * 30, 400) + 'ms';
     const cardReqCount = getRequestCount(m.title);
     const cardIRequested = hasUserRequested(m.title);
+    const posterClasses = ['card-poster'];
+    if (m.driveLink) posterClasses.push('card-poster--playable');
+    else posterClasses.push('card-poster--requestable');
+
     card.innerHTML = `
-      <div class="card-poster${m.driveLink ? ' card-poster--playable' : ''}">
+      <div class="${posterClasses.join(' ')}">
         ${m.poster ? `<img src="${m.poster}" alt="${escHtml(m.title)}" loading="lazy" onload="this.classList.add('loaded')" />` : ''}
-        ${m.driveLink ? `<a class="card-play-overlay drive-link" href="${m.driveLink}" target="_blank" rel="noopener" data-title="${escHtml(m.title)}" aria-label="Watch ${escHtml(m.title)}"><div class="card-play-btn"><span class="card-play-icon">&#9654;</span></div></a>` : ''}
+        ${m.driveLink
+          ? `<a class="card-play-overlay drive-link" href="${m.driveLink}" target="_blank" rel="noopener" data-title="${escHtml(m.title)}" aria-label="Watch ${escHtml(m.title)}"><div class="card-play-btn"><span class="card-play-icon">&#9654;</span></div></a>`
+          : cardIRequested
+            ? `<div class="card-play-overlay card-request-overlay card-request-overlay--done"><div class="card-request-btn card-request-btn--done"><span class="card-request-icon">&#10003;</span><span class="card-request-label">REQUESTED${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</span></div></div>`
+            : `<button class="card-play-overlay card-request-overlay request-btn" data-title="${escHtml(m.title)}" aria-label="Request ${escHtml(m.title)}"><div class="card-request-btn"><span class="card-request-icon">&#65291;</span><span class="card-request-label">REQUEST${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</span></div></button>`}
       </div>
       <div class="card-title">${escHtml(m.title)}</div>
       <div class="card-meta">
@@ -1072,11 +1080,6 @@ function renderGrid() {
         <span class="status-pill ${m.available ? 'status-available' : 'status-missing'}">
           ${m.available ? 'AVAILABLE' : 'NOT UPLOADED'}
         </span>
-        ${!m.driveLink
-          ? cardIRequested
-            ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">&#10003;</span> REQUESTED${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`
-            : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">&#65291;</span> REQUEST${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`
-          : ''}
       </div>
       ${m.driveLink ? `<div class="card-rating-row">${ratingHTML(m.title)}</div>` : ''}
     `;
@@ -1238,11 +1241,25 @@ $('main-content').addEventListener('click', async e => {
 });
 
 function setRequestedState(title, count) {
-  document.querySelectorAll('.request-btn[data-title="' + CSS.escape(title) + '"]').forEach(b => {
+  const countHtml = count ? ' <span class="request-count">' + count + '</span>' : '';
+
+  // Table view: plain .request-btn elements (not inside an overlay)
+  document.querySelectorAll('.request-btn[data-title="' + CSS.escape(title) + '"]:not(.card-request-overlay)').forEach(b => {
     b.disabled = false;
     b.classList.add('request-btn--done');
-    const countHtml = count ? ' <span class="request-count">' + count + '</span>' : '';
-    b.innerHTML = '<span class="request-icon">✓</span> REQUESTED' + countHtml;
+    b.innerHTML = '<span class="request-icon">&#10003;</span> REQUESTED' + countHtml;
+    b.dataset.title = title;
+  });
+
+  // Grid view: .card-request-overlay buttons — swap to "done" appearance
+  document.querySelectorAll('.card-request-overlay.request-btn[data-title="' + CSS.escape(title) + '"]').forEach(b => {
+    b.disabled = true;
+    b.classList.add('card-request-overlay--done');
+    const inner = b.querySelector('.card-request-btn');
+    if (inner) {
+      inner.classList.add('card-request-btn--done');
+      inner.innerHTML = '<span class="card-request-icon">&#10003;</span><span class="card-request-label">REQUESTED' + countHtml + '</span>';
+    }
     b.dataset.title = title;
   });
 }
