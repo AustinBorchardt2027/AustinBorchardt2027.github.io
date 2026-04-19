@@ -1701,8 +1701,12 @@ function renderLocalStats() {
   setText('stat-4k',   allMovies.filter(m => /4k|2160/i.test(m.resolution)).length);
   setText('stat-1080', allMovies.filter(m => /1080/i.test(m.resolution)).length);
 
-  // Push snapshot to server so daily graph stays current
-  pushSnapshot(total, available);
+  // Push snapshot to server at most once per hour
+  const lastSnap = parseInt(localStorage.getItem('lastSnapshotAt') || '0', 10);
+  if (Date.now() - lastSnap > 60 * 60 * 1000) {
+    pushSnapshot(total, available);
+    localStorage.setItem('lastSnapshotAt', Date.now());
+  }
 }
 
 function setText(id, val) {
