@@ -1878,9 +1878,8 @@ function renderPresenceChart(presence) {
   // Use numeric indices as labels so Chart.js never tries to parse them as dates.
   // The actual HH:MM strings live in _times and are surfaced via the tick callback.
   const times  = sampled.map(p => {
-    const parts = p.ts.split(' ');
-    const timePart = parts[parts.length - 1]; // e.g. "13:51:32"
-    return timePart.slice(0, 5); // "13:51"
+    const m = String(p.ts).match(/(\d{1,2}:\d{2})(?::\d{2})?/);
+    return m ? m[1] : '';
   });
   const values = sampled.map(p => p.online);
   const labels = sampled.map((_, i) => i);
