@@ -404,8 +404,13 @@ function findDriveMatch(title, driveMap) {
   // 1. Exact match
   if (driveMap[key]) return driveMap[key];
   // 2. Prefix match — sheet title is a prefix of the drive key (e.g. "f1" vs "f1themovie")
-  //    or drive key is a prefix of the sheet title
+  //    or drive key is a prefix of the sheet title.
+  //    Guard: the longer string can only be up to 20% longer than the shorter one,
+  //    preventing "guardiansofthegalaxy" from matching "guardiansofthegalaxyvol2".
   for (const [driveKey, val] of Object.entries(driveMap)) {
+    const shorter = Math.min(key.length, driveKey.length);
+    const longer  = Math.max(key.length, driveKey.length);
+    if (longer > shorter * 1.2) continue; // too much extra — skip
     if (driveKey.startsWith(key) || key.startsWith(driveKey)) return val;
   }
   // 3. Fuzzy: allow up to 2 edits for close typos
