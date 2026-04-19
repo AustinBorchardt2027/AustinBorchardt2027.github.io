@@ -223,7 +223,8 @@ const DEMO_DRIVE = {
 let allMovies = [];     // merged final array
 let filtered  = [];     // after search/filter
 let currentView = 'grid';
-let currentSort = 'imdb-desc';
+let currentSort = 'imdb';
+let currentDir  = 'desc';
 let isDemoMode  = false;
 let posterMap   = {};   // normalized title → poster URL
 
@@ -407,6 +408,7 @@ function saveSettings() {
       maturity:   filterMat.value,
       status:     filterStat.value,
       sort:       sortBy.value,
+        dir:        currentDir,
       view:       currentView,
     }));
   } catch(e) {}
@@ -423,6 +425,7 @@ function applySettings(s) {
   if (s.maturity)   filterMat.value  = s.maturity;
   if (s.status)     filterStat.value = s.status;
   if (s.sort)       { sortBy.value = s.sort; currentSort = s.sort; }
+  if (s.dir)        { currentDir = s.dir; sortDirBtn.textContent = currentDir === 'desc' ? '↓' : '↑'; }
   if (s.view && s.view !== currentView) {
     currentView = s.view;
     document.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === s.view));
@@ -441,6 +444,7 @@ const filterRes   = $('filter-resolution');
 const filterMat   = $('filter-maturity');
 const filterStat  = $('filter-status');
 const sortBy      = $('sort-by');
+const sortDirBtn  = $('sort-dir-btn');
 const movieCount  = $('movie-count');
 const availCount  = $('available-count');
 const resultsSummary = $('results-summary');
@@ -948,7 +952,8 @@ function applyFilters() {
 }
 
 function applySort() {
-  const [key, dir] = currentSort.split('-');
+  const key = currentSort;
+  const dir = currentDir;
   filtered.sort((a, b) => {
     let va, vb;
     if (key === 'title') { va = a.title.toLowerCase(); vb = b.title.toLowerCase(); }
@@ -1141,7 +1146,16 @@ sortBy.addEventListener('change', () => {
   currentSort = sortBy.value;
   applySort();
   saveSettings();
-  logClientEvent('Sort', sortBy.value);
+  logClientEvent('Sort', currentSort + '-' + currentDir);
+});
+
+sortDirBtn.addEventListener('click', () => {
+  currentDir = currentDir === 'desc' ? 'asc' : 'desc';
+  sortDirBtn.textContent = currentDir === 'desc' ? '↓' : '↑';
+  sortDirBtn.title = currentDir === 'desc' ? 'Descending' : 'Ascending';
+  applySort();
+  saveSettings();
+  logClientEvent('Sort Direction', currentDir);
 });
 
 // Column header sort
@@ -1379,8 +1393,10 @@ if (refreshBtn) {
   if (savedSettings) {
     applySettings(savedSettings);
   } else {
-    sortBy.value = 'imdb-desc';
-    currentSort = 'imdb-desc';
+    sortBy.value = 'imdb';
+    currentSort = 'imdb';
+    currentDir  = 'desc';
+    sortDirBtn.textContent = '↓';
   }
 
   // Show the access gate if no key is saved locally
