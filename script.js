@@ -1659,13 +1659,13 @@ function renderLocalStats() {
   const available = allMovies.filter(m => m.available).length;
 
   // Upload progress bar
-  const pct = total > 0 ? Math.round((available / total) * 100) : 0;
+  const pct = total > 0 ? ((available / total) * 100).toFixed(2) : '0.00';
   const fracEl  = document.getElementById('upload-fraction');
   const pctEl   = document.getElementById('upload-pct');
   const fillEl  = document.getElementById('upload-fill');
   if (fracEl)  fracEl.textContent  = available + ' / ' + total + ' films uploaded';
   if (pctEl)   pctEl.textContent   = pct + '%';
-  if (fillEl)  fillEl.style.width  = pct + '%';
+  if (fillEl)  fillEl.style.width  = parseFloat(pct) + '%';
 
   // Stat cards from local data
   setText('stat-total-films', total);
@@ -1882,11 +1882,13 @@ function renderPresenceChart(presence) {
     return m ? m[1] : '';
   });
   const rawValues = sampled.map(p => p.online);
-  // 3-point rolling average to smooth out single-sample spikes
+  // 5-point rolling average to smooth out single-sample spikes
   const values = rawValues.map((v, i, arr) => {
-    const prev = arr[i - 1] !== undefined ? arr[i - 1] : v;
-    const next = arr[i + 1] !== undefined ? arr[i + 1] : v;
-    return Math.round((prev + v + next) / 3 * 10) / 10;
+    const p2 = arr[i - 2] !== undefined ? arr[i - 2] : v;
+    const p1 = arr[i - 1] !== undefined ? arr[i - 1] : v;
+    const n1 = arr[i + 1] !== undefined ? arr[i + 1] : v;
+    const n2 = arr[i + 2] !== undefined ? arr[i + 2] : v;
+    return Math.round((p2 + p1 + v + n1 + n2) / 5 * 100) / 100;
   });
   const labels = sampled.map((_, i) => i);
 
