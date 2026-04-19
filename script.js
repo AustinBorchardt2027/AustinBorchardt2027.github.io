@@ -743,7 +743,7 @@ function renderGrid() {
           ${m.available ? 'AVAILABLE' : 'NOT UPLOADED'}
         </span>
         ${m.driveLink
-          ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶</a>`
+          ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶ WATCH</a>`
           : cardIRequested
             ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">✓</span> REQUESTED${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`
             : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">＋</span> REQUEST${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`}
