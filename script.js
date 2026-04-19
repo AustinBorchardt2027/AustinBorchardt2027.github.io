@@ -775,6 +775,8 @@ function fetchRatings(scriptURL, isRefresh = false) {
           const countEl = b.querySelector('.rating-count');
           if (countEl) countEl.textContent = getRatingCount(title, type) || 0;
         });
+        // Re-sort so rating sort order reflects fresh data
+        applySort();
       }
       resolve();
     };
