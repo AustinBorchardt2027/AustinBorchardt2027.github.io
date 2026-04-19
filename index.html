@@ -106,16 +106,19 @@
         </select>
       </div>
 
-      <div class="filter-group">
+      <div class="filter-group sort-group">
         <label class="filter-label">SORT BY</label>
-        <select id="sort-by">
-          <option value="title-asc">Title A→Z</option>
-          <option value="imdb-desc">IMDb Rating</option>
-          <option value="year-desc">Newest First</option>
-          <option value="rating-desc">Top Rated</option>
-          <option value="requests-desc">Most Requested</option>
-          <option value="size-desc">Largest Files</option>
-        </select>
+        <div class="sort-row">
+          <select id="sort-by">
+            <option value="title">Title</option>
+            <option value="imdb">IMDb Rating</option>
+            <option value="year">Year</option>
+            <option value="rating">Top Rated</option>
+            <option value="requests">Most Requested</option>
+            <option value="size">File Size</option>
+          </select>
+          <button class="sort-dir-btn" id="sort-dir-btn" title="Toggle sort direction" aria-label="Sort direction">↓</button>
+        </div>
       </div>
 
       <!-- View toggle -->
