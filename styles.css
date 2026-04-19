@@ -646,6 +646,62 @@ tbody tr:hover td { background: var(--surface2); }
   transform: scale(1.04);
 }
 
+/* ── CARD PLAY OVERLAY ── */
+.card-play-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0);
+  text-decoration: none;
+  transition: background 200ms ease;
+}
+
+.card-poster--playable:hover .card-play-overlay {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* Blur only on playable posters */
+.card-poster--playable:hover img {
+  filter: blur(3px);
+  transform: scale(1.04);
+}
+
+.card-play-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(232, 197, 71, 0.15);
+  border: 2px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(.34,1.56,.64,1), background 180ms ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.card-poster--playable:hover .card-play-btn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.card-play-overlay:hover .card-play-btn {
+  background: rgba(232, 197, 71, 0.30);
+}
+
+.card-play-icon {
+  font-size: 22px;
+  color: var(--accent);
+  line-height: 1;
+  margin-left: 3px;
+  display: block;
+}
+
 .card-title {
   font-family: var(--font-head);
   font-size: 18px;
