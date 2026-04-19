@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwA7tPIXs9zvIPT7haaCEXC8qiZlnDjlnY4tZJglMzxs65xlDkrdRSJnAjwysgWBoZzSQ/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx0HtsaUNDtdZe9nAG2XZ50dHCGqX94il98ljF6h4Txn1yX1WLoQ5DO7tsb3lPzQGsEWg/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -311,6 +311,7 @@ async function postRequest(title) {
     const url = DRIVE_SCRIPT_URL
       + '?action=request'
       + '&title=' + encodeURIComponent(title)
+      + '&key='   + encodeURIComponent(getSavedKey() || '')
       + '&callback=' + cbName;
     script.src = url;
     script.onerror = () => { cleanup(); resolve(localCount); };
@@ -382,6 +383,7 @@ async function postRating(title, type) {
       + '&title=' + encodeURIComponent(title)
       + '&type='  + encodeURIComponent(type)
       + '&prev='  + encodeURIComponent(prev || '')
+      + '&key='   + encodeURIComponent(getSavedKey() || '')
       + '&callback=' + cbName;
     script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); resolve(); };
     document.head.appendChild(script);
@@ -720,7 +722,7 @@ function patchGridCards() {
 
 
 /** Fetch fresh ratings from the server and re-render any visible rating widgets */
-function fetchRatings(scriptURL) {
+function fetchRatings(scriptURL, isRefresh = false) {
   return new Promise(resolve => {
     const cbName = '__ratingsCallback_' + Date.now();
     const script = document.createElement('script');
@@ -749,7 +751,7 @@ function fetchRatings(scriptURL) {
       }
       resolve();
     };
-    script.src = scriptURL + '?action=getRatings&callback=' + cbName + '&_cb=' + Date.now();
+    script.src = scriptURL + '?action=getRatings&key=' + encodeURIComponent(getSavedKey() || '') + '&refresh=' + (isRefresh ? '1' : '0') + '&callback=' + cbName + '&_cb=' + Date.now();
     script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); resolve(); };
     document.head.appendChild(script);
   });
@@ -819,7 +821,7 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
   }
 
   // Always fetch fresh ratings independently — they're not cached with Drive data
-  if (driveURL) fetchRatings(driveURL);
+  if (driveURL) fetchRatings(driveURL, forceRefresh);
 }
 
 function mergeData(rows, driveMap, posterMap = {}) {
@@ -1006,7 +1008,7 @@ function renderTable() {
       </td>
       <td class="td-link">
         ${m.driveLink
-          ? `<div class="td-link-inner"><a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶ WATCH</a>${ratingHTML(m.title)}</div>`
+          ? `<div class="td-link-inner"><a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener" data-title="${escHtml(m.title)}">▶ WATCH</a>${ratingHTML(m.title)}</div>`
           : iRequested
             ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">✓</span> REQUESTED${reqCount ? ' <span class="request-count">' + reqCount + '</span>' : ''}</button>`
             : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">＋</span> REQUEST${reqCount ? ' <span class="request-count">' + reqCount + '</span>' : ''}</button>`}
@@ -1051,7 +1053,7 @@ function renderGrid() {
           ${m.available ? 'AVAILABLE' : 'NOT UPLOADED'}
         </span>
         ${m.driveLink
-          ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener">▶ WATCH</a>`
+          ? `<a class="drive-link" href="${m.driveLink}" target="_blank" rel="noopener" data-title="${escHtml(m.title)}">▶ WATCH</a>`
           : cardIRequested
             ? `<button class="request-btn request-btn--done" data-title="${escHtml(m.title)}"><span class="request-icon">✓</span> REQUESTED${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`
             : `<button class="request-btn" data-title="${escHtml(m.title)}"><span class="request-icon">＋</span> REQUEST${cardReqCount ? ' <span class="request-count">' + cardReqCount + '</span>' : ''}</button>`}
@@ -1132,6 +1134,25 @@ document.querySelectorAll('.toggle-btn').forEach(btn => {
     renderCurrentView();
     saveSettings();
   });
+});
+
+// Watch link clicks — fire-and-forget log to server
+$('main-content').addEventListener('click', e => {
+  const link = e.target.closest('.drive-link');
+  if (!link) return;
+  const title = link.dataset.title || '';
+  const key = getSavedKey() || '';
+  if (!DRIVE_SCRIPT_URL || !key) return;
+  const cbName = '__openLinkCallback_' + Date.now();
+  const script = document.createElement('script');
+  window[cbName] = function() { delete window[cbName]; if (script.parentNode) script.parentNode.removeChild(script); };
+  script.src = DRIVE_SCRIPT_URL
+    + '?action=openLink'
+    + '&title=' + encodeURIComponent(title)
+    + '&key='   + encodeURIComponent(key)
+    + '&callback=' + cbName;
+  script.onerror = () => { if (script.parentNode) script.parentNode.removeChild(script); };
+  document.head.appendChild(script);
 });
 
 // Rating buttons (event delegation on main content)
