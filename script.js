@@ -2,7 +2,7 @@
    THE DRIVE — script.js
    Fetches Sheet CSV + Drive JSON, merges them, renders the UI.
    No external dependencies except Google Fonts (CSS only).
-   4/20/2026 5:53 PM
+   4/20/2026 5:56 PM
    ============================================================= */
 
 // ─── CONFIG ───────────────────────────────────────────────────
@@ -1200,8 +1200,10 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
   // The server's upsertSnapshot replaces today's entry if it already exists,
   // so this is safe to call every scan and will never create duplicate rows.
   {
-    const total     = Object.keys(finalPayload.movies || {}).length;
-    const available = total; // all scanned files are available
+    // Use allMovies (populated by applyDriveData above) so counts match the stats panel:
+    // total = full CSV library size, available = those with a Drive file attached.
+    const total     = allMovies.length;
+    const available = allMovies.filter(m => m.available).length;
     pushSnapshot(total, available);
   }
 
