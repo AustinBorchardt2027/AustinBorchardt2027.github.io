@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzm0bZgd_znLOhiwaTblvtuk7_Le3L8YAA7MNo1uRBf9ZN_bfY0NsM-aV2u1SX66YSXdg/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxNB8CGn3HA8ZtqXtfZN1PJqeyEq0N3DAnxx2KMoausRtKCAvKqz4HHdFnQigjvg4EH5g/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -1112,45 +1112,56 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh) {
     return;
   }
 
-  // ── Step 2: scan files in parallel batches, re-rendering after each batch ──
+  // ── Step 2: scan files in batches — each request processes SCAN_BATCH_SIZE
+  //    files server-side in a single Apps Script execution, dramatically
+  //    cutting the number of round trips vs. one file per call.
+  //    Multiple batches run in parallel (CONCURRENCY) for further speed.
   const accumMovies   = {};
   const accumPosters  = {};
   const accumRequests = {};
   const accumRatings  = {};
 
-  const total         = files.length;
-  const progressStart = 25;
-  const progressEnd   = 95;
-  const CONCURRENCY   = 10; // simultaneous scanFile requests
-  let   completed     = 0;
+  const SCAN_BATCH_SIZE = 10;
+  const CONCURRENCY     = 6;
+  const total           = files.length;
+  const progressStart   = 25;
+  const progressEnd     = 95;
 
-  for (let i = 0; i < total; i += CONCURRENCY) {
-    const batch = files.slice(i, i + CONCURRENCY);
+  const batches = [];
+  for (let i = 0; i < total; i += SCAN_BATCH_SIZE) {
+    batches.push(files.slice(i, i + SCAN_BATCH_SIZE));
+  }
 
-    const results = await Promise.all(batch.map(file =>
-      jsonpAction(
+  let completedFiles = 0;
+
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const concurrentBatches = batches.slice(i, i + CONCURRENCY);
+
+    const results = await Promise.all(concurrentBatches.map(batch => {
+      const fileIds   = batch.map(f => f.id).join(',');
+      const isPosters = batch.map(f => f.isPosters ? '1' : '0').join(',');
+      return jsonpAction(
         driveURL
-        + '?action=scanFile'
-        + '&fileId='    + encodeURIComponent(file.id)
-        + '&isPosters=' + (file.isPosters ? '1' : '0')
-        + '&isFinal=0'  // requests+ratings fetched separately below
+        + '?action=scanFiles'
+        + '&fileIds='   + encodeURIComponent(fileIds)
+        + '&isPosters=' + encodeURIComponent(isPosters)
         + '&key='       + encodeURIComponent(getSavedKey() || '')
         + '&did='       + encodeURIComponent(getDeviceId())
-      ).catch(e => {
-        console.warn('scanFile failed for', file.id, file.name, e);
-        return null; // skip failed files, keep going
-      })
-    ));
+      ).catch(err => {
+        console.warn('scanFiles batch failed:', err);
+        return null;
+      });
+    }));
 
     for (const result of results) {
       if (result && result.ok) {
-        Object.assign(accumMovies,  result.movie  || {});
-        Object.assign(accumPosters, result.poster || {});
+        Object.assign(accumMovies,  result.movies  || {});
+        Object.assign(accumPosters, result.posters || {});
       }
     }
 
-    completed += batch.length;
-    setProgress(progressStart + ((completed / total) * (progressEnd - progressStart)));
+    completedFiles += concurrentBatches.reduce((s, b) => s + b.length, 0);
+    setProgress(progressStart + ((completedFiles / total) * (progressEnd - progressStart)));
 
     applyDriveData({
       movies:   accumMovies,
@@ -1800,43 +1811,53 @@ if (refreshBtn) {
         return;
       }
 
-      // Step 3: scan files in parallel batches, re-rendering after each batch
+      // Step 3: scan files in batches of SCAN_BATCH_SIZE, CONCURRENCY at a time
       const accumMovies   = {};
       const accumPosters  = {};
       const accumRequests = {};
       const accumRatings  = {};
-      const total         = files.length;
-      const progressStart = 10;
-      const progressEnd   = 95;
-      const CONCURRENCY   = 6;
-      let   completed     = 0;
 
-      for (let i = 0; i < total; i += CONCURRENCY) {
-        const batch = files.slice(i, i + CONCURRENCY);
+      const SCAN_BATCH_SIZE = 10;
+      const CONCURRENCY     = 6;
+      const total           = files.length;
+      const progressStart   = 10;
+      const progressEnd     = 95;
 
-        const results = await Promise.all(batch.map(file =>
-          jsonpAction(
-            DRIVE_SCRIPT_URL + '?action=scanFile'
-            + '&fileId='    + encodeURIComponent(file.id)
-            + '&isPosters=' + (file.isPosters ? '1' : '0')
-            + '&isFinal=0'  // requests+ratings fetched separately below
+      const batches = [];
+      for (let i = 0; i < total; i += SCAN_BATCH_SIZE) {
+        batches.push(files.slice(i, i + SCAN_BATCH_SIZE));
+      }
+
+      let completedFiles = 0;
+
+      for (let i = 0; i < batches.length; i += CONCURRENCY) {
+        const concurrentBatches = batches.slice(i, i + CONCURRENCY);
+
+        const results = await Promise.all(concurrentBatches.map(batch => {
+          const fileIds   = batch.map(f => f.id).join(',');
+          const isPosters = batch.map(f => f.isPosters ? '1' : '0').join(',');
+          return jsonpAction(
+            DRIVE_SCRIPT_URL
+            + '?action=scanFiles'
+            + '&fileIds='   + encodeURIComponent(fileIds)
+            + '&isPosters=' + encodeURIComponent(isPosters)
             + '&key='       + encodeURIComponent(getSavedKey() || '')
             + '&did='       + encodeURIComponent(getDeviceId())
-          ).catch(e => {
-            console.warn('scanFile failed for', file.id, file.name, e);
+          ).catch(err => {
+            console.warn('scanFiles batch failed:', err);
             return null;
-          })
-        ));
+          });
+        }));
 
         for (const result of results) {
           if (result && result.ok) {
-            Object.assign(accumMovies,  result.movie  || {});
-            Object.assign(accumPosters, result.poster || {});
+            Object.assign(accumMovies,  result.movies  || {});
+            Object.assign(accumPosters, result.posters || {});
           }
         }
 
-        completed += batch.length;
-        setProgress(progressStart + ((completed / total) * (progressEnd - progressStart)));
+        completedFiles += concurrentBatches.reduce((s, b) => s + b.length, 0);
+        setProgress(progressStart + ((completedFiles / total) * (progressEnd - progressStart)));
         applyDriveData({
           movies:   accumMovies,
           posters:  accumPosters,
