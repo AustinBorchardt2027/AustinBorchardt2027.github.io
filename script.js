@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw4Li6FHuqHx1FFm-g9A8SIsGgvQTqnNKmYHIiOCbdVpfTZfEyyov2v9Q48mMg4q3Wf0Q/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzm0bZgd_znLOhiwaTblvtuk7_Le3L8YAA7MNo1uRBf9ZN_bfY0NsM-aV2u1SX66YSXdg/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
