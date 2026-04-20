@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxJrSYkpm8iugyQVe65XPR2wWae_nLWQjfntWUgfqPGQl2M5tP2lGJJhdS1hJJrjEHJPw/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbaWCZJFxJyFD0tEEuOL8cIEnfckY2IYLFBvZepoxx6mdYEubXVybsVDvHU3wQ8Fi7YQ/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -1084,28 +1084,88 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
 }
 
 // Fallback for when the Apps Script cache is cold (Drive scan not yet cached).
-// Uses the original single bulk fetch — slower but always works.
+// Scans the Drive file-by-file: first fetches the full flat file list via
+// getFileList, then calls scanFile once per file, re-rendering incrementally.
 async function loadDataBulkFallback(driveURL, csvRows, forceRefresh) {
-  let driveData = null;
-  let lastError = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
-      driveData = await fetchScriptJSON(driveURL, forceRefresh);
-      if (driveData && driveData.error) throw new Error(driveData.error);
-      break;
-    } catch (e) {
-      lastError = e;
-      console.warn('Bulk fallback attempt ' + (attempt + 1) + ' failed:', e);
+  // ── Step 1: get the flat list of every file in the Drive tree ──
+  let files = [];
+  try {
+    const listData = await jsonpAction(driveURL + '?action=getFileList');
+    if (listData && listData.ok && Array.isArray(listData.files)) {
+      files = listData.files; // [{ id, name, isPosters }, ...]
+    } else {
+      throw new Error(listData && listData.error ? listData.error : 'getFileList failed');
     }
+  } catch (e) {
+    showToast('⚠ Could not load Drive file list. Check the Script URL & deployment.');
+    console.error('getFileList error:', e);
+    setProgress(100);
+    setTimeout(() => scanBar.classList.add('hidden'), 300);
+    fetchRatings(driveURL, forceRefresh);
+    return;
   }
-  if (driveData) {
-    saveCache(driveData);
-    applyDriveData(driveData, csvRows);
-  } else {
-    showToast('⚠ Could not load Drive data. Check the Script URL & deployment.');
-    console.error('Bulk fallback error:', lastError);
+
+  if (files.length === 0) {
+    setProgress(100);
+    setTimeout(() => scanBar.classList.add('hidden'), 300);
+    fetchRatings(driveURL, forceRefresh);
+    return;
   }
+
+  // ── Step 2: scan each file one at a time, re-rendering as we go ──
+  const accumMovies   = {};
+  const accumPosters  = {};
+  const accumRequests = {};
+  const accumRatings  = {};
+
+  const total         = files.length;
+  const progressStart = 25;
+  const progressEnd   = 95;
+
+  for (let i = 0; i < total; i++) {
+    const file    = files[i];
+    const isFinal = i === total - 1;
+
+    try {
+      const result = await jsonpAction(
+        driveURL
+        + '?action=scanFile'
+        + '&fileId='    + encodeURIComponent(file.id)
+        + '&isPosters=' + (file.isPosters ? '1' : '0')
+        + '&isFinal='   + (isFinal ? '1' : '0')
+        + '&key='       + encodeURIComponent(getSavedKey() || '')
+        + '&did='       + encodeURIComponent(getDeviceId())
+      );
+
+      if (result && result.ok) {
+        Object.assign(accumMovies,  result.movie  || {});
+        Object.assign(accumPosters, result.poster || {});
+      }
+    } catch (e) {
+      // Skip this file and keep going — partial data is fine
+      console.warn('scanFile failed for', file.id, file.name, e);
+    }
+
+    // Advance progress bar proportionally
+    setProgress(progressStart + (((i + 1) / total) * (progressEnd - progressStart)));
+
+    // Re-render with all data accumulated so far
+    applyDriveData({
+      movies:   accumMovies,
+      posters:  accumPosters,
+      requests: accumRequests,
+      ratings:  accumRatings,
+    }, csvRows);
+  }
+
+  // ── Step 3: save assembled payload to local cache ──
+  saveCache({
+    movies:   accumMovies,
+    posters:  accumPosters,
+    requests: accumRequests,
+    ratings:  accumRatings,
+  });
+
   setProgress(100);
   setTimeout(() => scanBar.classList.add('hidden'), 300);
   fetchRatings(driveURL, forceRefresh);
