@@ -2,7 +2,7 @@
    THE DRIVE — script.js
    Fetches Sheet CSV + Drive JSON, merges them, renders the UI.
    No external dependencies except Google Fonts (CSS only).
-   4/20/2026 5:47 PM
+   4/20/2026 5:53 PM
    ============================================================= */
 
 // ─── CONFIG ───────────────────────────────────────────────────
@@ -1196,6 +1196,15 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
   // Apply the complete data (movies + fresh counts) to the UI
   applyDriveData(finalPayload, csvRows);
 
+  // ── Push Library Growth snapshot — only on a full Drive scan ──
+  // The server's upsertSnapshot replaces today's entry if it already exists,
+  // so this is safe to call every scan and will never create duplicate rows.
+  {
+    const total     = Object.keys(finalPayload.movies || {}).length;
+    const available = total; // all scanned files are available
+    pushSnapshot(total, available);
+  }
+
   // ── Step 5: write the assembled payload to the Apps Script cache (5-min TTL)
   //    so the next person to load the site gets it instantly.
   try {
@@ -2049,12 +2058,8 @@ function renderLocalStats() {
   setText('stat-4k',   allMovies.filter(m => /4k|2160/i.test(m.resolution)).length);
   setText('stat-1080', allMovies.filter(m => /1080/i.test(m.resolution)).length);
 
-  // Push snapshot to server at most once per hour
-  const lastSnap = parseInt(localStorage.getItem('lastSnapshotAt') || '0', 10);
-  if (Date.now() - lastSnap > 60 * 60 * 1000) {
-    pushSnapshot(total, available);
-    localStorage.setItem('lastSnapshotAt', Date.now());
-  }
+  // Snapshot is pushed only after a full Drive scan completes (in loadDataBulkFallback),
+  // not here, so the Library Growth chart only reflects actual scan results.
 }
 
 function setText(id, val) {
