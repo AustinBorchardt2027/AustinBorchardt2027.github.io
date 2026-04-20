@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby1TU1uD-CtymOFrtO_1_KEC2YrKCsSdrTxxmttodGhZnraieoi3YUyMrqD-t9IqdZjWg/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbweT0Yle27erWV9YfDDc0IcNgBwl0YCt81DDZ_2rgx6arsogWsBDFAOLw7oA7719d-9Ow/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -941,8 +941,29 @@ function fetchRatings(scriptURL, isRefresh = false) {
   });
 }
 
+// ── JSONP helper for a single Apps Script action call ──
+function jsonpAction(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = '__cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const script = document.createElement('script');
+    const timer  = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 15000);
+    function cleanup() {
+      clearTimeout(timer);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+    window[cbName] = data => { cleanup(); resolve(data); };
+    script.src     = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName + '&_cb=' + Date.now();
+    script.onerror = () => { cleanup(); reject(new Error('script error')); };
+    document.head.appendChild(script);
+  });
+}
+
+// Number of movie keys fetched per sequential request
+const SEQUENTIAL_BATCH_SIZE = 10;
+
 async function loadData(sheetURL, scriptURL, forceRefresh = false) {
-  setProgress(10);
+  setProgress(5);
   let csvRows = [];
 
   // ── 1. Fetch CSV ──
@@ -951,61 +972,143 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const text = await r.text();
     csvRows = parseCSV(text);
-    setProgress(30);
+    setProgress(15);
   } catch (e) {
     showToast('⚠ Could not load Sheet CSV. Check the URL & sharing settings.');
     console.error('CSV fetch error:', e);
   }
 
-  // ── 2. Render immediately from cache if available (skipped on force refresh) ──
+  // ── 2. Render from cache immediately if available (skipped on force refresh) ──
   const cached = forceRefresh ? null : loadCache();
   if (cached) {
     applyDriveData(cached, csvRows);
     setProgress(100);
     setTimeout(() => scanBar.classList.add('hidden'), 300);
-  } else {
-    // No cache — show movies without availability while Drive loads
-    allMovies = mergeData(csvRows, {}, {});
-    render();
-    populateResFilter();
-    updateCounts();
+    if (scriptURL && scriptURL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
+      fetchRatings(scriptURL, forceRefresh);
+    }
+    return;
   }
 
-  // ── 3. Fetch Drive JSON in background (with one silent retry) ──
+  // No cache — show all titles immediately without Drive data while we fetch
+  allMovies = mergeData(csvRows, {}, {});
+  render();
+  populateResFilter();
+  updateCounts();
+  setProgress(20);
+
   const driveURL = scriptURL && scriptURL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE' ? scriptURL : null;
-  if (driveURL) {
-    let driveData = null;
-    let lastError = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        if (attempt > 0) await new Promise(r => setTimeout(r, 3000)); // wait 3s before retry
-        driveData = await fetchScriptJSON(driveURL, forceRefresh);
-        if (driveData && driveData.error) throw new Error(driveData.error);
-        break; // success
-      } catch (e) {
-        lastError = e;
-        console.warn('Drive fetch attempt ' + (attempt + 1) + ' failed:', e);
-      }
-    }
-    if (driveData) {
-      saveCache(driveData);
-      applyDriveData(driveData, csvRows);
-      setProgress(100);
-      setTimeout(() => scanBar.classList.add('hidden'), 300);
-    } else {
-      // Only show the toast if both attempts failed
-      if (!cached) showToast('⚠ Could not load Drive data. Check the Script URL & deployment.');
-      console.error('Drive JSON error after retry:', lastError);
-      setProgress(100);
-      setTimeout(() => scanBar.classList.add('hidden'), 300);
-    }
-  } else {
+  if (!driveURL) {
     setProgress(100);
     setTimeout(() => scanBar.classList.add('hidden'), 300);
+    return;
   }
 
-  // Always fetch fresh ratings independently — they're not cached with Drive data
-  if (driveURL) fetchRatings(driveURL, forceRefresh);
+  // ── 3. Fetch movie index (just keys + names — hits Apps Script cache instantly) ──
+  let movieIndex = [];
+  try {
+    const indexData = await jsonpAction(driveURL + '?action=getMovieIndex' + (forceRefresh ? '&bust=1' : ''));
+    if (indexData && Array.isArray(indexData.movies)) {
+      movieIndex = indexData.movies; // [{ key, name }, ...]
+    } else if (!indexData || indexData.error === 'cache_miss') {
+      // Cache is cold (first load after deploy) — fall back to bulk fetch
+      console.log('Apps Script cache cold, falling back to bulk fetch…');
+      await loadDataBulkFallback(driveURL, csvRows, forceRefresh);
+      return;
+    }
+  } catch (e) {
+    console.warn('getMovieIndex failed, falling back to bulk fetch:', e);
+    await loadDataBulkFallback(driveURL, csvRows, forceRefresh);
+    return;
+  }
+
+  setProgress(25);
+
+  // ── 4. Fetch batches of movies sequentially, re-rendering after each batch ──
+  const accumMovies   = {};
+  const accumPosters  = {};
+  const accumRequests = {};
+  const accumRatings  = {};
+
+  const keys  = movieIndex.map(m => m.key);
+  const total = keys.length;
+  const progressStart = 25;
+  const progressEnd   = 95;
+
+  for (let i = 0; i < keys.length; i += SEQUENTIAL_BATCH_SIZE) {
+    const batch = keys.slice(i, i + SEQUENTIAL_BATCH_SIZE);
+    try {
+      const batchData = await jsonpAction(
+        driveURL + '?action=getMovieBatch&keys=' + encodeURIComponent(batch.join(',')) +
+        (forceRefresh ? '&bust=1' : '')
+      );
+      if (batchData && batchData.movies) {
+        for (const [key, val] of Object.entries(batchData.movies)) {
+          if (val.movie)                         accumMovies[key]   = val.movie;
+          if (val.poster)                        accumPosters[key]  = val.poster;
+          if (typeof val.requests === 'number')  accumRequests[key] = val.requests;
+          if (val.ratings)                       accumRatings[key]  = val.ratings;
+        }
+      }
+    } catch (e) {
+      console.warn('Batch fetch failed for keys:', batch, e);
+      // Continue — partial data is fine, remaining batches will still load
+    }
+
+    // Advance progress bar proportionally
+    const done = Math.min(i + SEQUENTIAL_BATCH_SIZE, total);
+    setProgress(progressStart + ((done / total) * (progressEnd - progressStart)));
+
+    // Re-render with all data accumulated so far
+    applyDriveData({
+      movies:   accumMovies,
+      posters:  accumPosters,
+      requests: accumRequests,
+      ratings:  accumRatings,
+    }, csvRows);
+  }
+
+  // ── 5. Save the fully assembled payload to local cache ──
+  saveCache({
+    movies:   accumMovies,
+    posters:  accumPosters,
+    requests: accumRequests,
+    ratings:  accumRatings,
+  });
+
+  setProgress(100);
+  setTimeout(() => scanBar.classList.add('hidden'), 300);
+
+  // Fetch fresh ratings independently (excluded from Drive cache)
+  fetchRatings(driveURL, forceRefresh);
+}
+
+// Fallback for when the Apps Script cache is cold (Drive scan not yet cached).
+// Uses the original single bulk fetch — slower but always works.
+async function loadDataBulkFallback(driveURL, csvRows, forceRefresh) {
+  let driveData = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+      driveData = await fetchScriptJSON(driveURL, forceRefresh);
+      if (driveData && driveData.error) throw new Error(driveData.error);
+      break;
+    } catch (e) {
+      lastError = e;
+      console.warn('Bulk fallback attempt ' + (attempt + 1) + ' failed:', e);
+    }
+  }
+  if (driveData) {
+    saveCache(driveData);
+    applyDriveData(driveData, csvRows);
+  } else {
+    showToast('⚠ Could not load Drive data. Check the Script URL & deployment.');
+    console.error('Bulk fallback error:', lastError);
+  }
+  setProgress(100);
+  setTimeout(() => scanBar.classList.add('hidden'), 300);
+  fetchRatings(driveURL, forceRefresh);
 }
 
 function mergeData(rows, driveMap, posterMap = {}) {
