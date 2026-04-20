@@ -2,7 +2,7 @@
    THE DRIVE — script.js
    Fetches Sheet CSV + Drive JSON, merges them, renders the UI.
    No external dependencies except Google Fonts (CSS only).
-   4/20/2026 5:26 PM
+   4/20/2026 5:39 PM
    ============================================================= */
 
 // ─── CONFIG ───────────────────────────────────────────────────
@@ -1199,16 +1199,21 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
   // ── Step 5: write the assembled payload to the Apps Script cache (5-min TTL)
   //    so the next person to load the site gets it instantly.
   try {
+    // Apps Script web apps return a 302 redirect before executing doPost.
+    // Using redirect:'follow' causes the browser to convert the POST to a GET
+    // on the redirect, dropping the body — so doPost never runs and the cache
+    // is never written. mode:'no-cors' sends the POST directly without
+    // following redirects, which is the correct pattern for Apps Script POSTs.
     fetch(driveURL, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain' }, // no-cors requires simple headers
       body:    JSON.stringify({
         action:  'writeCache',
         payload: finalPayload,
         key:     getSavedKey() || '',
         did:     getDeviceId(),
       }),
-      redirect: 'follow',
+      mode:     'no-cors',
     }).catch(() => {}); // fire-and-forget — failure is non-critical
   } catch(e) {}
 
