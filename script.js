@@ -1919,14 +1919,14 @@ if (refreshBtn) {
 
   // Restore saved settings, or fall back to defaults
   const savedSettings = loadSettings();
-  //if (savedSettings) {
-    //applySettings(savedSettings);
-  //} else {
+  if (savedSettings) {
+    applySettings(savedSettings);
+  } else {
     sortBy.value = 'rating';
     currentSort = 'rating';
     currentDir  = 'desc';
     sortDirBtn.textContent = '↓';
-  //}
+  }
 
   // Show the access gate if no key is saved locally
   await initWithGate();
