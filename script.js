@@ -371,7 +371,6 @@ let posterMap   = {};   // normalized title → poster URL
 
 let requestCounts = {}; // { normalizedTitle: number } — from server
 
-const LOCAL_REQUEST_KEY  = 'thedrive_requests_v1';   // server counts cache (wiped on refresh)
 const LOCAL_USER_REQ_KEY = 'thedrive_user_reqs_v1';  // which titles THIS user requested (never wiped)
 
 // ── User-requested set ──
@@ -396,13 +395,6 @@ function getRatingScore(title) {
 
 function getRequestCount(title) {
   return requestCounts[normalize(title)] || 0;
-}
-
-function loadLocalCounts() {
-  try { return JSON.parse(localStorage.getItem(LOCAL_REQUEST_KEY) || '{}'); } catch(e) { return {}; }
-}
-function saveLocalCounts() {
-  try { localStorage.setItem(LOCAL_REQUEST_KEY, JSON.stringify(requestCounts)); } catch(e) {}
 }
 
 async function postRequest(title) {
@@ -832,25 +824,20 @@ function fetchScriptJSON(url, bustCache = false) {
   });
 }
 
-const CACHE_KEY   = 'thedrive_cache_v3';
-const CACHE_MAX_AGE = 5 * 60 * 1000; // 5 minutes
+// ── Server-side cache only ──
+// Drive data is cached exclusively on the Apps Script server (5-min TTL via
+// CacheService). localStorage is NOT used for Drive data — every load asks
+// the server, which either returns its cached payload instantly or triggers
+// a fresh Drive scan if the cache is cold (> 5 min old or first load).
 
-function saveCache(data) {
-  try {
-    // Strip ratings from the cache — they're stored separately and refreshed every load
-    const { ratings, ...rest } = data;
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: rest }));
-  } catch(e) {}
+function saveCache(_data) {
+  // No-op: Drive cache lives on the server, not in localStorage.
+  // The writeCache POST in loadDataBulkFallback handles server-side persistence.
 }
 
 function loadCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const { ts, data } = JSON.parse(raw);
-    if (Date.now() - ts > CACHE_MAX_AGE) return null;
-    return data;
-  } catch(e) { return null; }
+  // Always returns null — we never use a local Drive cache.
+  return null;
 }
 
 function applyDriveData(rawData, csvRows) {
@@ -945,52 +932,6 @@ function fetchRatings(scriptURL, isRefresh = false) {
  * Fetch fresh request counts from the server and patch all visible
  * request buttons and tooltips without a full re-render.
  */
-function fetchRequestCounts(scriptURL) {
-  if (!scriptURL || scriptURL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') return;
-  const cbName = '__requestCountsCallback_' + Date.now();
-  const script = document.createElement('script');
-  const timer  = setTimeout(() => {
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-  }, 10000);
-  window[cbName] = function(data) {
-    clearTimeout(timer);
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-    // The main doGet returns { movies, posters, requests, ratings }
-    // We only care about requests here.
-    if (data && data.requests) {
-      requestCounts = {};
-      for (const [k, v] of Object.entries(data.requests)) {
-        requestCounts[normalize(k)] = v;
-      }
-      // Patch all visible request buttons with fresh counts
-      document.querySelectorAll('.request-btn, .card-request-overlay').forEach(btn => {
-        const title = btn.dataset.title;
-        if (!title) return;
-        const count = getRequestCount(title);
-        const countHtml = count ? ' <span class="request-count">' + count + '</span>' : '';
-        const isDone = btn.classList.contains('request-btn--done') || btn.classList.contains('card-request-overlay--done');
-        const label  = isDone ? 'REQUESTED' : 'REQUEST';
-        const icon   = isDone ? '&#10003;' : '&#65291;';
-        const inner  = btn.querySelector('.card-request-label');
-        if (inner) {
-          inner.innerHTML = label + countHtml;
-        } else {
-          btn.innerHTML = '<span class="request-icon">' + icon + '</span> ' + label + countHtml;
-          btn.dataset.title = title;
-        }
-      });
-    }
-  };
-  // Fetch the full cached payload — requests are always included
-  script.src = scriptURL
-    + '?callback=' + cbName
-    + '&_cb='      + Date.now();
-  script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
-  document.head.appendChild(script);
-}
-
 // ── JSONP helper for a single Apps Script action call ──
 function jsonpAction(url) {
   return new Promise((resolve, reject) => {
@@ -1028,30 +969,7 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
     console.error('CSV fetch error:', e);
   }
 
-  // ── 2. Render stale cache immediately so the page feels instant, then
-  //       always rescan Drive to pick up any new files.
-  //       If this is an explicit force-refresh (refresh button), skip straight
-  //       to the full scan with the scan bar visible.
-  const cached = loadCache();
-  if (cached && !forceRefresh) {
-    applyDriveData(cached, csvRows);
-    setProgress(100);
-    setTimeout(() => scanBar.classList.add('hidden'), 300);
-    if (scriptURL && scriptURL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
-      // Always fetch fresh ratings AND request counts on every load,
-      // even when cache is warm — counts change every time someone requests.
-      fetchRatings(scriptURL, false).then(() => {
-        // After ratings load, also pull fresh request counts separately
-        fetchRequestCounts(scriptURL);
-      });
-      // Always rescan Drive in the background to pick up newly added files.
-      // background=true keeps the scan bar hidden since stale data is already shown.
-      loadDataBulkFallback(scriptURL, csvRows, true, true).catch(() => {});
-    }
-    return;
-  }
-
-  // No cache, or force-refresh — show titles from CSV immediately while scanning
+  // Show CSV titles immediately so the page isn't blank while we wait for Drive
   allMovies = mergeData(csvRows, {}, {});
   render();
   populateResFilter();
@@ -1065,83 +983,57 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
     return;
   }
 
-  // ── 3. Fetch movie index (just keys + names — hits Apps Script cache instantly) ──
-  let movieIndex = [];
-  try {
-    const indexData = await jsonpAction(driveURL + '?action=getMovieIndex' + (forceRefresh ? '&bust=1' : ''));
-    if (indexData && Array.isArray(indexData.movies)) {
-      movieIndex = indexData.movies; // [{ key, name }, ...]
-    } else if (!indexData || indexData.error === 'cache_miss') {
-      // Cache is cold (first load after deploy) — fall back to bulk fetch
-      console.log('Apps Script cache cold, falling back to bulk fetch…');
-      await loadDataBulkFallback(driveURL, csvRows, forceRefresh, false);
-      return;
-    }
-  } catch (e) {
-    console.warn('getMovieIndex failed, falling back to bulk fetch:', e);
-    await loadDataBulkFallback(driveURL, csvRows, forceRefresh, false);
+  // ── 2. Try the Apps Script server cache (5-min TTL via CacheService) ──
+  //
+  //  • forceRefresh=false (normal page load):
+  //      Call the plain doGet with no extra params. If the server cache is warm
+  //      (someone scanned Drive in the last 5 minutes), it returns instantly.
+  //      If the cache is cold, the plain doGet attempts a folder walk which can
+  //      time out for large libraries — in that case we catch the error and fall
+  //      through to the batched scan below.
+  //
+  //  • forceRefresh=true (refresh button):
+  //      Add bust=1 to force the server to skip its cache and do a fresh scan,
+  //      but the plain doGet folder walk can time out for large libraries.
+  //      We therefore go straight to the batched bulk-fallback for refreshes.
+
+  if (forceRefresh) {
+    // Force a full batched rescan — plain doGet isn't reliable for large libraries
+    await loadDataBulkFallback(driveURL, csvRows, true, false);
     return;
   }
 
+  // Normal load — try the server cache first
   setProgress(25);
-
-  // ── 4. Fetch batches of movies sequentially, re-rendering after each batch ──
-  const accumMovies   = {};
-  const accumPosters  = {};
-  const accumRequests = {};
-  const accumRatings  = {};
-
-  const keys  = movieIndex.map(m => m.key);
-  const total = keys.length;
-  const progressStart = 25;
-  const progressEnd   = 95;
-
-  for (let i = 0; i < keys.length; i += SEQUENTIAL_BATCH_SIZE) {
-    const batch = keys.slice(i, i + SEQUENTIAL_BATCH_SIZE);
-    try {
-      const batchData = await jsonpAction(
-        driveURL + '?action=getMovieBatch&keys=' + encodeURIComponent(batch.join(',')) +
-        (forceRefresh ? '&bust=1' : '')
-      );
-      if (batchData && batchData.movies) {
-        for (const [key, val] of Object.entries(batchData.movies)) {
-          if (val.movie)                         accumMovies[key]   = val.movie;
-          if (val.poster)                        accumPosters[key]  = val.poster;
-          if (typeof val.requests === 'number')  accumRequests[key] = val.requests;
-          if (val.ratings)                       accumRatings[key]  = val.ratings;
-        }
-      }
-    } catch (e) {
-      console.warn('Batch fetch failed for keys:', batch, e);
-      // Continue — partial data is fine, remaining batches will still load
+  let serverPayload = null;
+  try {
+    serverPayload = await jsonpAction(driveURL + '?_cb=' + Date.now());
+    // If the server had to do a full folder walk and returned data, great.
+    // If it returned an error (cache cold and walk failed), fall through.
+    if (serverPayload && serverPayload.error) {
+      console.log('Server cache cold or error:', serverPayload.error, '— running batched scan');
+      serverPayload = null;
     }
-
-    // Advance progress bar proportionally
-    const done = Math.min(i + SEQUENTIAL_BATCH_SIZE, total);
-    setProgress(progressStart + ((done / total) * (progressEnd - progressStart)));
-
-    // Re-render with all data accumulated so far
-    applyDriveData({
-      movies:   accumMovies,
-      posters:  accumPosters,
-      requests: accumRequests,
-      ratings:  accumRatings,
-    }, csvRows);
+  } catch (e) {
+    console.warn('Server cache fetch failed:', e);
+    serverPayload = null;
   }
 
-  // ── 5. Save the fully assembled payload to local cache ──
-  saveCache({
-    movies:   accumMovies,
-    posters:  accumPosters,
-    requests: accumRequests,
-    ratings:  accumRatings,
-  });
+  if (serverPayload && serverPayload.movies) {
+    // ── Cache hit — apply data immediately ──
+    applyDriveData(serverPayload, csvRows);
+    setProgress(100);
+    setTimeout(() => scanBar.classList.add('hidden'), 300);
+    // Fetch ratings separately (not stored in the Drive cache)
+    fetchRatings(driveURL, false);
+    updateLastUpdated();
+    return;
+  }
 
-  setProgress(100);
-  setTimeout(() => scanBar.classList.add('hidden'), 300);
-
-  // Fetch fresh ratings independently (excluded from Drive cache)
-  fetchRatings(driveURL, forceRefresh);
+  // ── Cache miss — run the full batched Drive scan ──
+  // loadDataBulkFallback scans Drive in parallel batches and writes the result
+  // back to the Apps Script server cache via a writeCache POST when done.
+  await loadDataBulkFallback(driveURL, csvRows, false, false);
 }
 
 // Scans Drive file-by-file using batched scanFiles calls.
@@ -1238,16 +1130,66 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
     }, csvRows);
   }
 
-  // ── Step 3: save assembled payload to local cache ──
+  // ── Step 3: fetch live request + rating counts from the sheet ──
+  // scanFiles only collects Drive file metadata; requests/ratings live in
+  // the Google Sheet and must be fetched separately after the scan completes.
+  let liveRequests = {};
+  let liveRatings  = {};
+  try {
+    const ratingsData = await new Promise((resolve) => {
+      const cbName = '__postScanRatings_' + Date.now();
+      const script = document.createElement('script');
+      const timer  = setTimeout(() => {
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+        resolve({});
+      }, 10000);
+      window[cbName] = function(data) {
+        clearTimeout(timer);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+        resolve(data || {});
+      };
+      script.src = driveURL
+        + '?action=getRatings'
+        + '&key='      + encodeURIComponent(getSavedKey() || '')
+        + '&did='      + encodeURIComponent(getDeviceId())
+        + '&callback=' + cbName
+        + '&_cb='      + Date.now();
+      script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); resolve({}); };
+      document.head.appendChild(script);
+    });
+    if (ratingsData.ratings) {
+      for (const [k, v] of Object.entries(ratingsData.ratings)) {
+        liveRatings[normalize(k)] = v;
+      }
+      ratingCounts = { ...liveRatings };
+    }
+  } catch(e) {}
+
+  // Also pull request counts from the live sheet via the main payload
+  try {
+    const reqPayload = await jsonpAction(driveURL + '?_cb=' + Date.now());
+    if (reqPayload && reqPayload.requests) {
+      for (const [k, v] of Object.entries(reqPayload.requests)) {
+        liveRequests[normalize(k)] = v;
+      }
+      requestCounts = { ...liveRequests };
+    }
+  } catch(e) {}
+
+  // ── Step 4: assemble final payload with live counts ──
   const finalPayload = {
     movies:   accumMovies,
     posters:  accumPosters,
-    requests: accumRequests,
-    ratings:  accumRatings,
+    requests: liveRequests,
+    ratings:  liveRatings,
   };
-  saveCache(finalPayload);
 
-  // ── Step 4: write the assembled payload to the Apps Script cache (5-min TTL)
+  // Apply the complete data (movies + fresh counts) to the UI
+  applyDriveData(finalPayload, csvRows);
+
+  // ── Step 5: write the assembled payload to the Apps Script cache (5-min TTL)
   //    so the next person to load the site gets it instantly.
   try {
     fetch(driveURL, {
@@ -1267,7 +1209,6 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
     setProgress(100);
     setTimeout(() => scanBar.classList.add('hidden'), 300);
   }
-  fetchRatings(driveURL, forceRefresh);
   updateLastUpdated();
 }
 
@@ -1896,27 +1837,15 @@ if (refreshBtn) {
     scanBar.classList.remove('hidden');
     setProgress(0);
 
-    // Clear local caches — keep userRequested and userRatings
-    try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
-    try { localStorage.removeItem(LOCAL_REQUEST_KEY); } catch(e) {}
+    // Wipe in-memory state and any stale localStorage left from older versions
     requestCounts = {};
     ratingCounts  = {};
+    try { localStorage.removeItem('thedrive_cache_v3'); } catch(e) {}
+    try { localStorage.removeItem('thedrive_requests_v1'); } catch(e) {}
     try { localStorage.removeItem('thedrive_rating_counts_v1'); } catch(e) {}
 
+    // Bust the server-side cache first so the upcoming scan starts clean
     if (DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
-      // Show all titles from CSV immediately while Drive scans
-      let csvRows = [];
-      try {
-        const r = await fetchURL(SHEET_CSV_URL, true);
-        if (r.ok) csvRows = parseCSV(await r.text());
-      } catch(e) {}
-      allMovies = mergeData(csvRows, {}, {});
-      render();
-      populateResFilter();
-      updateCounts();
-      setProgress(10);
-
-      // Step 1: bust the server-side cache so the scan starts fresh
       try {
         await jsonpAction(
           DRIVE_SCRIPT_URL + '?action=bustCache'
@@ -1926,125 +1855,12 @@ if (refreshBtn) {
       } catch(e) {
         console.warn('bustCache failed (non-critical):', e);
       }
-
-      // Step 2: get the flat file list from Drive
-      let files = [];
-      try {
-        const listData = await jsonpAction(
-          DRIVE_SCRIPT_URL + '?action=getFileList'
-          + '&key=' + encodeURIComponent(getSavedKey() || '')
-          + '&did=' + encodeURIComponent(getDeviceId())
-        );
-        if (listData && listData.ok && Array.isArray(listData.files)) {
-          files = listData.files;
-        } else {
-          throw new Error(listData && listData.error ? listData.error : 'getFileList failed');
-        }
-      } catch(e) {
-        console.warn('getFileList failed:', e);
-        showToast('⚠ Could not reach Drive. Try again.');
-        refreshBtn.classList.remove('spinning');
-        setProgress(100);
-        setTimeout(() => scanBar.classList.add('hidden'), 300);
-        return;
-      }
-
-      if (files.length === 0) {
-        setProgress(100);
-        setTimeout(() => scanBar.classList.add('hidden'), 300);
-        refreshBtn.classList.remove('spinning');
-        return;
-      }
-
-      // Step 3: scan files in batches of SCAN_BATCH_SIZE, CONCURRENCY at a time
-      const accumMovies   = {};
-      const accumPosters  = {};
-      const accumRequests = {};
-      const accumRatings  = {};
-
-      const SCAN_BATCH_SIZE = 10;
-      const CONCURRENCY     = 6;
-      const total           = files.length;
-      const progressStart   = 10;
-      const progressEnd     = 95;
-
-      const batches = [];
-      for (let i = 0; i < total; i += SCAN_BATCH_SIZE) {
-        batches.push(files.slice(i, i + SCAN_BATCH_SIZE));
-      }
-
-      let completedFiles = 0;
-
-      for (let i = 0; i < batches.length; i += CONCURRENCY) {
-        const concurrentBatches = batches.slice(i, i + CONCURRENCY);
-
-        const results = await Promise.all(concurrentBatches.map(batch => {
-          const fileIds   = batch.map(f => f.id).join(',');
-          const isPosters = batch.map(f => f.isPosters ? '1' : '0').join(',');
-          return jsonpAction(
-            DRIVE_SCRIPT_URL
-            + '?action=scanFiles'
-            + '&fileIds='   + encodeURIComponent(fileIds)
-            + '&isPosters=' + encodeURIComponent(isPosters)
-            + '&key='       + encodeURIComponent(getSavedKey() || '')
-            + '&did='       + encodeURIComponent(getDeviceId())
-          ).catch(err => {
-            console.warn('scanFiles batch failed:', err);
-            return null;
-          });
-        }));
-
-        for (const result of results) {
-          if (result && result.ok) {
-            Object.assign(accumMovies,  result.movies  || {});
-            Object.assign(accumPosters, result.posters || {});
-          }
-        }
-
-        completedFiles += concurrentBatches.reduce((s, b) => s + b.length, 0);
-        setProgress(progressStart + ((completedFiles / total) * (progressEnd - progressStart)));
-        applyDriveData({
-          movies:   accumMovies,
-          posters:  accumPosters,
-          requests: accumRequests,
-          ratings:  accumRatings,
-        }, csvRows);
-      }
-
-      // Step 4: save assembled payload to local cache
-      const finalPayload = {
-        movies:   accumMovies,
-        posters:  accumPosters,
-        requests: accumRequests,
-        ratings:  accumRatings,
-      };
-      saveCache(finalPayload);
-
-      // Step 5: write to Apps Script cache so next load is instant
-      try {
-        fetch(DRIVE_SCRIPT_URL, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            action:  'writeCache',
-            payload: finalPayload,
-            key:     getSavedKey() || '',
-            did:     getDeviceId(),
-          }),
-          redirect: 'follow',
-        }).catch(() => {});
-      } catch(e) {}
-
-      // Step 6: fetch fresh ratings now that scan is complete
-      fetchRatings(DRIVE_SCRIPT_URL, true);
-
-    } else {
-      // No script URL — just reload from CSV
-      await loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL, true);
     }
 
-    setProgress(100);
-    setTimeout(() => scanBar.classList.add('hidden'), 300);
+    // loadData(forceRefresh=true) skips the server cache and goes straight to
+    // the batched Drive scan, then writes the fresh result back to the server.
+    await loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL, true);
+
     updateLastUpdated();
     refreshBtn.classList.remove('spinning');
   });
