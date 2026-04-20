@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx4v4_kG-dXKpSu3fZIbqKBNw1-ck5br5VI-cnZdQx9iVwLgMdLIPU0xq-_WJPtHNUIdA/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxJrSYkpm8iugyQVe65XPR2wWae_nLWQjfntWUgfqPGQl2M5tP2lGJJhdS1hJJrjEHJPw/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -1645,55 +1645,113 @@ if (refreshBtn) {
   refreshBtn.addEventListener('click', async () => {
     if (refreshBtn.classList.contains('spinning')) return;
 
-    // Spin the icon
     refreshBtn.classList.add('spinning');
     scanBar.classList.remove('hidden');
     setProgress(0);
 
-    // Clear the drive cache and server counts — but KEEP userRequested and userRatings
+    // Clear local caches — keep userRequested and userRatings
     try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
     try { localStorage.removeItem(LOCAL_REQUEST_KEY); } catch(e) {}
     requestCounts = {};
-    ratingCounts = {};
+    ratingCounts  = {};
     try { localStorage.removeItem('thedrive_rating_counts_v1'); } catch(e) {}
 
-    // Bust the Apps Script server-side cache so the next fetch rescans Drive
     if (DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
-      showToast('↻ Rescanning Drive… this may take a moment', 30000);
-      await new Promise(resolve => {
-        const cbName = '__bustCallback_' + Date.now();
-        const script = document.createElement('script');
-        const timer  = setTimeout(() => {
-          delete window[cbName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          resolve();
-        }, 60000); // Drive scan can take up to ~60s
-        window[cbName] = function() {
-          clearTimeout(timer);
-          delete window[cbName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          resolve();
-        };
-        script.src = DRIVE_SCRIPT_URL
-          + '?action=bustCache'
-          + '&key='      + encodeURIComponent(getSavedKey() || '')
-          + '&did='      + encodeURIComponent(getDeviceId())
-          + '&callback=' + cbName
-          + '&_cb='      + Date.now();
-        script.onerror = () => {
-          clearTimeout(timer);
-          if (script.parentNode) script.parentNode.removeChild(script);
-          resolve();
-        };
-        document.head.appendChild(script);
+      // Show all titles from CSV immediately while Drive scans
+      let csvRows = [];
+      try {
+        const r = await fetchURL(SHEET_CSV_URL, true);
+        if (r.ok) csvRows = parseCSV(await r.text());
+      } catch(e) {}
+      allMovies = mergeData(csvRows, {}, {});
+      render();
+      populateResFilter();
+      updateCounts();
+      setProgress(10);
+
+      // Step 1: get the folder list (also clears server cache)
+      let folders = [];
+      try {
+        const listData = await jsonpAction(
+          DRIVE_SCRIPT_URL + '?action=getFolderList'
+          + '&key=' + encodeURIComponent(getSavedKey() || '')
+          + '&did=' + encodeURIComponent(getDeviceId())
+        );
+        if (listData && listData.folders) folders = listData.folders;
+      } catch(e) {
+        console.warn('getFolderList failed:', e);
+        showToast('⚠ Could not reach Drive. Try again.');
+        refreshBtn.classList.remove('spinning');
+        setProgress(100);
+        setTimeout(() => scanBar.classList.add('hidden'), 300);
+        return;
+      }
+
+      if (folders.length === 0) {
+        setProgress(100);
+        setTimeout(() => scanBar.classList.add('hidden'), 300);
+        refreshBtn.classList.remove('spinning');
+        return;
+      }
+
+      // Step 2: scan each folder sequentially, rendering movies as they arrive
+      const accumMovies   = {};
+      const accumPosters  = {};
+      const progressStart = 10;
+      const progressEnd   = 95;
+
+      for (let i = 0; i < folders.length; i++) {
+        const folder  = folders[i];
+        const isFinal = i === folders.length - 1;
+
+        try {
+          const scanData = await jsonpAction(
+            DRIVE_SCRIPT_URL + '?action=scanFolder'
+            + '&folderId='  + encodeURIComponent(folder.id)
+            + '&isPosters=' + (folder.isPosters ? '1' : '0')
+            + '&rootOnly='  + (folder.rootOnly  ? '1' : '0')
+            + '&isFinal='   + (isFinal           ? '1' : '0')
+            + '&key='       + encodeURIComponent(getSavedKey() || '')
+            + '&did='       + encodeURIComponent(getDeviceId())
+          );
+
+          if (scanData && scanData.movies)  Object.assign(accumMovies,  scanData.movies);
+          if (scanData && scanData.posters) Object.assign(accumPosters, scanData.posters);
+
+        } catch(e) {
+          console.warn('scanFolder failed for', folder.name, e);
+          // Continue — don't stop the whole scan for one failed folder
+        }
+
+        // Update progress and re-render after every folder
+        setProgress(progressStart + ((i + 1) / folders.length) * (progressEnd - progressStart));
+        applyDriveData({
+          movies:   accumMovies,
+          posters:  accumPosters,
+          requests: requestCounts,
+          ratings:  ratingCounts,
+        }, csvRows);
+      }
+
+      // Save the fully assembled result to local cache
+      saveCache({
+        movies:   accumMovies,
+        posters:  accumPosters,
+        requests: requestCounts,
+        ratings:  ratingCounts,
       });
-      // Dismiss the scanning toast before data loads
-      toast.classList.remove('show');
+
+      // Fetch fresh ratings now that scan is complete
+      fetchRatings(DRIVE_SCRIPT_URL, true);
+
+    } else {
+      // No script URL — just reload from CSV
+      await loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL, true);
     }
 
-    // Re-fetch everything fresh — bypass cache and bust browser/CDN caches
-    await loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL, true);
-
+    setProgress(100);
+    setTimeout(() => scanBar.classList.add('hidden'), 300);
+    updateLastUpdated();
     refreshBtn.classList.remove('spinning');
   });
 }
