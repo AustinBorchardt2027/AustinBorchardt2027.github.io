@@ -8,7 +8,7 @@
 // Sheet published as CSV
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
 // ↓↓ PASTE YOUR APPS SCRIPT /exec URL HERE ↓↓
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbweT0Yle27erWV9YfDDc0IcNgBwl0YCt81DDZ_2rgx6arsogWsBDFAOLw7oA7719d-9Ow/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxvwtc3S1kqZcCeWj7mBOxwATz0NmKdsHR9gy81xpnBCNTbli1ZOCRqJmDyh0PeFq2U/exec';
 
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
@@ -1656,6 +1656,37 @@ if (refreshBtn) {
     requestCounts = {};
     ratingCounts = {};
     try { localStorage.removeItem('thedrive_rating_counts_v1'); } catch(e) {}
+
+    // Bust the Apps Script server-side cache so the next fetch rescans Drive
+    if (DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
+      await new Promise(resolve => {
+        const cbName = '__bustCallback_' + Date.now();
+        const script = document.createElement('script');
+        const timer  = setTimeout(() => {
+          delete window[cbName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+          resolve();
+        }, 8000);
+        window[cbName] = function() {
+          clearTimeout(timer);
+          delete window[cbName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+          resolve();
+        };
+        script.src = DRIVE_SCRIPT_URL
+          + '?action=bustCache'
+          + '&key='      + encodeURIComponent(getSavedKey() || '')
+          + '&did='      + encodeURIComponent(getDeviceId())
+          + '&callback=' + cbName
+          + '&_cb='      + Date.now();
+        script.onerror = () => {
+          clearTimeout(timer);
+          if (script.parentNode) script.parentNode.removeChild(script);
+          resolve();
+        };
+        document.head.appendChild(script);
+      });
+    }
 
     // Re-fetch everything fresh — bypass cache and bust browser/CDN caches
     await loadData(SHEET_CSV_URL, DRIVE_SCRIPT_URL, true);
