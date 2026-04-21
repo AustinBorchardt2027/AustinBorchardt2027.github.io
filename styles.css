@@ -1967,15 +1967,33 @@ tbody tr:hover td { background: var(--surface2); }
   width: max-content;
 }
 
-/* Row cards are narrower than grid cards */
+/* Row cards — wide enough for buttons and metadata to breathe */
 .row-card {
-  width: 160px;
+  width: 200px;
   flex-shrink: 0;
 }
 
 .row-card .card-poster {
   width: calc(100% + 36px);
   aspect-ratio: 2/3;
+}
+
+/* Prevent any inner row-card content from overflowing */
+.row-card .card-title,
+.row-card .card-meta,
+.row-card .card-row,
+.row-card .card-footer {
+  overflow: hidden;
+}
+
+.row-card .card-title {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row-card .card-footer {
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* ── GRID VIEW (when filters active) ── */
