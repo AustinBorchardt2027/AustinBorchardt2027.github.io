@@ -5,7 +5,7 @@
 
 // ─── CONFIG ───────────────────────────────────────────────────
 const SHEET_CSV_URL    = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRRk-WuFbb7q-_ZNbCjC6AaeV5yR6cGDuVCBJp0-wQI3zRQmdSaw87uzsUwI3dFgXTvsO_qBs6ach1C/pub?output=csv';
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxiszQ843iPgviYa57xeqoIV7zUVom0durN944iiO2TrX_Iz-yOrtN3mLE3HbdJheEitw/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxYq3oydwSsdSDY7a8zuBL0p5glX5QB7qi3sEPDf0s1rQlyH2U8Vv5_k8cwdBsTtI6KMQ/exec';
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
 const LOCAL_KEY_STORE = 'thedrive_access_key_v1';
