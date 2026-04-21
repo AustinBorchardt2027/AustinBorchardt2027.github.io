@@ -986,6 +986,45 @@ function renderRowCards(container, movies) {
     frag.appendChild(card);
   });
   container.appendChild(frag);
+  // Update button visibility after cards are rendered
+  const scroller = container.closest('.movie-row-scroll');
+  if (scroller) updateRowScrollBtns(scroller);
+}
+
+// ── Row scroll buttons ──
+(function initRowScrollBtns() {
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.row-scroll-btn');
+    if (!btn) return;
+    const dir      = parseInt(btn.dataset.dir, 10);
+    const targetId = btn.dataset.target;
+    const track    = document.getElementById(targetId);
+    if (!track) return;
+    const scroller = track.closest('.movie-row-scroll');
+    if (!scroller) return;
+    // Scroll by ~3 card widths (200px card + 14px gap)
+    scroller.scrollBy({ left: dir * (214 * 3), behavior: 'smooth' });
+  });
+
+  // Update button visibility on scroll
+  document.addEventListener('scroll', handleRowScroll, true);
+
+  function handleRowScroll(e) {
+    if (!e.target.classList || !e.target.classList.contains('movie-row-scroll')) return;
+    updateRowScrollBtns(e.target);
+  }
+})();
+
+function updateRowScrollBtns(scroller) {
+  const wrapper = scroller.closest('.row-scroll-wrapper');
+  if (!wrapper) return;
+  const leftBtn  = wrapper.querySelector('.row-scroll-btn--left');
+  const rightBtn = wrapper.querySelector('.row-scroll-btn--right');
+  if (!leftBtn || !rightBtn) return;
+  const atStart = scroller.scrollLeft <= 4;
+  const atEnd   = scroller.scrollLeft >= scroller.scrollWidth - scroller.clientWidth - 4;
+  leftBtn.dataset.hidden  = atStart ? '1' : '0';
+  rightBtn.dataset.hidden = atEnd   ? '1' : '0';
 }
 
 // ── Grid View ──
