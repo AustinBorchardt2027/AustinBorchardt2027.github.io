@@ -5,7 +5,7 @@
 
 // ─── CONFIG ───────────────────────────────────────────────────
 const SHEET_CSV_URL    = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ-pTR5TVQn64f0w1o8Z4JeJ9rj9GtOPDoAA1R5cDeg7YYrgscYwPVxJIqgdP9Bn9ywCnDjCjm7nsTR/pub?output=csv';
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykhH4OK9zXWh9o4dhMRpdMccBpX7LUfM2fyAB-rMkRJrpgONtkVTz82XY48pgLaAT_Tw/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz3cLolBEOvLwadX69YsAuuzOdt6rNI4NsPz3FccMfbB17PlxKdJ1VoOqsxGY3fmkpXYQ/exec';
 
 // ─── ACCESS KEY GATE ──────────────────────────────────────────
 const LOCAL_KEY_STORE = 'thedrive_access_key_v1';
@@ -1338,7 +1338,7 @@ if (refreshBtn) {
   if (DRIVE_SCRIPT_URL && DRIVE_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
     fetchOnlineCount();
     setInterval(fetchOnlineCount, 60 * 1000);
-    setInterval(pingHeartbeat, 4 * 60 * 1000);
+    startHeartbeat();
     setInterval(pushPresencePing, 10 * 1000);
   }
 
@@ -1369,15 +1369,82 @@ function fetchOnlineCount() {
   document.head.appendChild(script);
 }
 
+// ─── RELIABLE HEARTBEAT ───────────────────────────────────────
+// Pings the server every 5 s. If 3 consecutive pings receive no
+// response (timeout or network error), the client is considered
+// offline and stops contributing to the online count until the
+// next successful ping.
+const HEARTBEAT_INTERVAL_MS  = 5000;   // ping every 5 s
+const HEARTBEAT_TIMEOUT_MS   = 4500;   // how long to wait for a reply
+const HEARTBEAT_MISS_LIMIT   = 3;      // misses before marking offline
+
+let heartbeatMissCount  = 0;
+let heartbeatOnline     = true;  // this client's own online state
+let heartbeatIntervalId = null;
+
+function startHeartbeat() {
+  if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
+  heartbeatIntervalId = setInterval(pingHeartbeat, HEARTBEAT_INTERVAL_MS);
+  pingHeartbeat(); // fire immediately so we don't wait 5 s on load
+}
+
 function pingHeartbeat() {
   const cbName = '__heartbeatCallback_' + Date.now();
   const script = document.createElement('script');
-  const timer  = setTimeout(() => { delete window[cbName]; if (script.parentNode) script.parentNode.removeChild(script); }, 10000);
-  window[cbName] = function() { clearTimeout(timer); delete window[cbName]; if (script.parentNode) script.parentNode.removeChild(script); };
-  script.src = DRIVE_SCRIPT_URL + '?action=checkDevice&did=' + encodeURIComponent(getDeviceId()) + '&key=' + encodeURIComponent(getSavedKey() || '') + '&callback=' + cbName + '&_cb=' + Date.now();
-  script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
+
+  // If no reply arrives within the timeout window, count it as a miss
+  const timer = setTimeout(() => {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    _heartbeatMiss();
+  }, HEARTBEAT_TIMEOUT_MS);
+
+  window[cbName] = function(data) {
+    clearTimeout(timer);
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    _heartbeatSuccess(data);
+  };
+
+  script.onerror = () => {
+    clearTimeout(timer);
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    _heartbeatMiss();
+  };
+
+  script.src = DRIVE_SCRIPT_URL
+    + '?action=checkDevice'
+    + '&did='      + encodeURIComponent(getDeviceId())
+    + '&key='      + encodeURIComponent(getSavedKey() || '')
+    + '&callback=' + cbName
+    + '&_cb='      + Date.now();
   document.head.appendChild(script);
 }
+
+function _heartbeatSuccess(data) {
+  heartbeatMissCount = 0;
+  if (!heartbeatOnline) {
+    heartbeatOnline = true;
+    console.log('[heartbeat] back online');
+  }
+  // Handle force-reauth from server (key cleared remotely)
+  if (data && data.keyCleared) {
+    localStorage.removeItem('driveAccessKey');
+    location.reload();
+  }
+}
+
+function _heartbeatMiss() {
+  heartbeatMissCount++;
+  if (heartbeatOnline && heartbeatMissCount >= HEARTBEAT_MISS_LIMIT) {
+    heartbeatOnline = false;
+    console.warn('[heartbeat] offline — ' + HEARTBEAT_MISS_LIMIT + ' consecutive missed pings');
+  }
+}
+
+/** Returns true if this client is considered online (recent ping success). */
+function isClientOnline() { return heartbeatOnline; }
 
 // ─── STATS TAB ────────────────────────────────────────────────
 let statsLoaded = false, statsLoadedAt = 0;
@@ -1527,7 +1594,13 @@ function presenceChartOptions(times) {
 
 function pushPresencePing() {
   const onlineEl = $('online-count');
-  const count = onlineEl ? (parseInt(onlineEl.textContent, 10) || 0) : 0;
+  // If this client itself is considered offline (missed 3+ heartbeats),
+  // report 0 so we don't inflate the server count while disconnected.
+  const selfCounts = isClientOnline() ? 1 : 0;
+  // Use the displayed server count but floor it at selfCounts so we
+  // never report a count lower than our own presence.
+  const displayedCount = onlineEl ? (parseInt(onlineEl.textContent, 10) || 0) : 0;
+  const count = Math.max(selfCounts, displayedCount);
   const cbName = '__presencePingCallback_' + Date.now();
   const script  = document.createElement('script');
   const timer   = setTimeout(() => { delete window[cbName]; if (script.parentNode) script.parentNode.removeChild(script); }, 8000);
