@@ -2,7 +2,7 @@
    THE DRIVE — script.js
    Fetches Sheet CSV + Drive JSON, merges them, renders the UI.
    No external dependencies except Google Fonts (CSS only).
-   4/20/2026 6:08 PM
+   4/20/2026 6:13 PM
    ============================================================= */
 
 // ─── CONFIG ───────────────────────────────────────────────────
@@ -1011,12 +1011,14 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
   // data is < 5 minutes old it returns it instantly; otherwise {stale:true}.
   setProgress(25);
   let serverPayload = null;
+  let cacheAgeS     = null;
   try {
     const cacheResult = await jsonpAction(
       driveURL + '?action=getScanCache&_cb=' + Date.now()
     );
     if (cacheResult && cacheResult.ok && cacheResult.payload && cacheResult.payload.movies) {
       serverPayload = cacheResult.payload;
+      cacheAgeS     = typeof cacheResult.age_s === 'number' ? cacheResult.age_s : null;
       console.log('Scan cache hit (' + (cacheResult.source || '?') + ', ' + Math.round(cacheResult.age_s) + 's old)');
     } else {
       console.log('Scan cache stale or missing — running full Drive scan');
@@ -1032,9 +1034,7 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
     setTimeout(() => scanBar.classList.add('hidden'), 300);
     fetchRatings(driveURL, false);
     // Show when the cache was written, not the current time
-    const cacheDate = (typeof cacheResult.age_s === 'number')
-      ? new Date(Date.now() - cacheResult.age_s * 1000)
-      : new Date();
+    const cacheDate = cacheAgeS !== null ? new Date(Date.now() - cacheAgeS * 1000) : new Date();
     updateLastUpdated(cacheDate);
     return;
   }
