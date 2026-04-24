@@ -675,6 +675,15 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
   if (forceRefresh) { await loadDataBulkFallback(driveURL, csvRows, true, false); return; }
 
   setProgress(25);
+
+  // ── Cache-first strategy ──────────────────────────────────────────────────
+  // Always try the server scan cache first. If we get a valid payload, show
+  // it immediately (even if it's a bit old) so users never wait for a full
+  // Drive scan. Then, if the cache is getting stale (> 20 min), kick off a
+  // silent background refresh so the *next* load is fast too.
+  // Only fall through to a full scan if the cache is completely missing.
+  const BACKGROUND_REFRESH_THRESHOLD_S = 20 * 60; // 20 minutes
+
   let serverPayload = null, cacheAgeS = null;
   try {
     const cacheResult = await jsonpAction(driveURL + '?action=getScanCache&_cb=' + Date.now());
@@ -685,15 +694,23 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
   } catch (e) { console.warn('getScanCache failed:', e); }
 
   if (serverPayload) {
+    // Serve the cached data immediately — user sees movies right away
     applyDriveData(serverPayload, csvRows);
     setProgress(100);
     setTimeout(() => scanBar.classList.add('hidden'), 300);
     fetchRatings(driveURL, false);
     const cacheDate = cacheAgeS !== null ? new Date(Date.now() - cacheAgeS * 1000) : new Date();
     updateLastUpdated(cacheDate);
+
+    // If cache is aging, silently rescan in the background so next visit is fast
+    if (cacheAgeS !== null && cacheAgeS > BACKGROUND_REFRESH_THRESHOLD_S) {
+      console.log('[Cache] Age ' + Math.round(cacheAgeS / 60) + ' min — triggering background refresh');
+      setTimeout(() => loadDataBulkFallback(driveURL, csvRows, false, true), 2000);
+    }
     return;
   }
 
+  // Cache is cold — do a full scan (shows progress bar to user)
   await loadDataBulkFallback(driveURL, csvRows, false, false);
 }
 
@@ -717,12 +734,14 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
   }
 
   const accumMovies = {}, accumPosters = {}, accumRequests = {}, accumRatings = {};
-  const SCAN_BATCH_SIZE = 10, CONCURRENCY = 6;
+  const SCAN_BATCH_SIZE = 10, CONCURRENCY = 2; // Reduced from 6 to avoid Drive rate limits
+  const INTER_BATCH_DELAY_MS = 350; // Pause between waves to stay under quota
   const total = files.length;
   const progressStart = 25, progressEnd = 95;
   const batches = [];
   for (let i = 0; i < total; i += SCAN_BATCH_SIZE) batches.push(files.slice(i, i + SCAN_BATCH_SIZE));
   let completedFiles = 0;
+  const failedFileIds = []; // Collect errored files for a retry pass
 
   for (let i = 0; i < batches.length; i += CONCURRENCY) {
     const concurrentBatches = batches.slice(i, i + CONCURRENCY);
@@ -731,12 +750,40 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
       const isPosters = batch.map(f => f.isPosters ? '1' : '0').join(',');
       return jsonpAction(driveURL + '?action=scanFiles&fileIds=' + encodeURIComponent(fileIds) + '&isPosters=' + encodeURIComponent(isPosters) + '&key=' + encodeURIComponent(getSavedKey() || '') + '&did=' + encodeURIComponent(getDeviceId())).catch(err => { console.warn('scanFiles batch failed:', err); return null; });
     }));
-    for (const result of results) {
-      if (result && result.ok) { Object.assign(accumMovies, result.movies || {}); Object.assign(accumPosters, result.posters || {}); }
+    for (let r = 0; r < results.length; r++) {
+      const result = results[r];
+      if (result && result.ok) {
+        Object.assign(accumMovies, result.movies || {});
+        Object.assign(accumPosters, result.posters || {});
+        if (Array.isArray(result.failedIds)) {
+          const batchFiles = concurrentBatches[r] || [];
+          result.failedIds.forEach(fid => { const orig = batchFiles.find(f => f.id === fid); if (orig) failedFileIds.push(orig); });
+        }
+      } else if (result === null) {
+        (concurrentBatches[r] || []).forEach(f => failedFileIds.push(f));
+      }
     }
     completedFiles += concurrentBatches.reduce((s, b) => s + b.length, 0);
     if (!background) setProgress(progressStart + ((completedFiles / total) * (progressEnd - progressStart)));
     applyDriveData({ movies: accumMovies, posters: accumPosters, requests: accumRequests, ratings: accumRatings }, csvRows);
+    if (i + CONCURRENCY < batches.length) await new Promise(r => setTimeout(r, INTER_BATCH_DELAY_MS));
+  }
+
+  // Retry pass — wait 3s then re-scan any files that errored the first time
+  if (failedFileIds.length > 0) {
+    console.log('[Scan] Retrying ' + failedFileIds.length + ' failed file(s) after 3s...');
+    await new Promise(r => setTimeout(r, 3000));
+    const retryBatches = [];
+    for (let i = 0; i < failedFileIds.length; i += SCAN_BATCH_SIZE) retryBatches.push(failedFileIds.slice(i, i + SCAN_BATCH_SIZE));
+    for (const batch of retryBatches) {
+      try {
+        const fileIds   = batch.map(f => f.id).join(',');
+        const isPosters = batch.map(f => f.isPosters ? '1' : '0').join(',');
+        const result    = await jsonpAction(driveURL + '?action=scanFiles&fileIds=' + encodeURIComponent(fileIds) + '&isPosters=' + encodeURIComponent(isPosters) + '&key=' + encodeURIComponent(getSavedKey() || '') + '&did=' + encodeURIComponent(getDeviceId()));
+        if (result && result.ok) { Object.assign(accumMovies, result.movies || {}); Object.assign(accumPosters, result.posters || {}); applyDriveData({ movies: accumMovies, posters: accumPosters, requests: accumRequests, ratings: accumRatings }, csvRows); }
+      } catch(err) { console.warn('[Scan] Retry batch also failed:', err); }
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
 
   let liveRequests = {}, liveRatings = {};
