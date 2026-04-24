@@ -842,6 +842,7 @@ tbody tr:hover td { background: var(--surface2); }
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  margin-top: auto;
 }
 
 .card-year {
