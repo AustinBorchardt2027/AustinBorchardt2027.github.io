@@ -699,6 +699,8 @@ function renderOverlayEpisodes() {
     const prefix = normalize(`${overlayCurrentShow.title} s${padS}e${padE}`);
     
     let thumbUrl = '';
+     console.log('thumbMap keys:', Object.keys(thumbMap).slice(0, 10));
+     console.log('looking for prefix:', prefix);
     for (const key of Object.keys(thumbMap)) {
        if (key.startsWith(prefix) && key.includes('thumb')) {
            if (thumbMap[key].id) {
