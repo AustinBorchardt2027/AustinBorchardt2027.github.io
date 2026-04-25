@@ -671,6 +671,7 @@ function renderShows() {
     frag.appendChild(card);
   });
   container.appendChild(frag);
+  updateCounts();
 }
 
 // ─── SHOW OVERLAY ─────────────────────────────────────────────
@@ -1194,8 +1195,25 @@ function clearAllFilters() {
 }
 
 function updateCounts() {
-  if (movieCount) movieCount.textContent = allMovies.length + ' movies';
-  if (availCount) availCount.textContent = allMovies.filter(m => m.available).length + ' available';
+  const totalMovies = allMovies.length;
+  const availMovies = allMovies.filter(m => m.available).length;
+  const totalEps    = allShows.reduce((t, s) => t + showTotalCount(s), 0);
+  const availEps    = allShows.reduce((t, s) => t + showAvailableCount(s), 0);
+
+  let totalText, availText;
+  if (activeTab === 'shows') {
+    totalText = totalEps + ' Episodes';
+    availText = availEps + ' Available';
+  } else if (activeTab === 'stats') {
+    totalText = (totalMovies + totalEps) + ' Files';
+    availText = (availMovies + availEps) + ' Available';
+  } else {
+    totalText = totalMovies + ' Movies';
+    availText = availMovies + ' Available';
+  }
+
+  if (movieCount) movieCount.textContent = totalText;
+  if (availCount) availCount.textContent = availText;
 }
 
 // ─── SORT & FILTER ────────────────────────────────────────────
@@ -1664,6 +1682,7 @@ if (refreshBtn) {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + tab).classList.add('active');
+      updateCounts();
       if (tab === 'stats')  initStatsTab();
       if (tab === 'shows')  filterAndRenderShows();
     });
