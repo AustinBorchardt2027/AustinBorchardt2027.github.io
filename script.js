@@ -644,12 +644,10 @@ function openShowOverlay(show) {
   overlayCurrentSeason = show.seasons[0] ? show.seasons[0].num : 1;
 
   const overlay = document.getElementById('show-overlay');
-  const posterEl = document.getElementById('show-overlay-poster');
   const titleEl  = document.getElementById('show-overlay-title');
   const metaEl   = document.getElementById('show-overlay-meta');
   const seasonsEl = document.getElementById('show-overlay-seasons');
 
-  if (posterEl) { posterEl.src = show.poster || ''; posterEl.alt = show.title; }
   if (titleEl)  titleEl.textContent = show.title;
   if (metaEl) {
     const totalEps = showTotalCount(show), availEps = showAvailableCount(show);
@@ -659,11 +657,6 @@ function openShowOverlay(show) {
       <span>${availEps}/${totalEps} eps available</span>
       ${show.imdbRating ? `<span class="card-sep">·</span><span style="color:var(--accent)">★ ${escHtml(show.imdbRating)}</span>` : ''}
     `;
-  }
-
-  // Force the parent container to use our new split-column layout class
-  if (seasonsEl && seasonsEl.parentElement) {
-    seasonsEl.parentElement.classList.add('show-overlay-split-layout');
   }
 
   // Generate Season tabs (Column left)
@@ -707,9 +700,7 @@ function renderOverlayEpisodes() {
     
     let thumbUrl = '';
     for (const key of Object.keys(thumbMap)) {
-       // Look for image files that match the prefix and contain "thumb"
        if (key.startsWith(prefix) && key.includes('thumb')) {
-           // We can ask Google Drive to generate a thumbnail dynamically based on the file ID!
            if (thumbMap[key].id) {
                thumbUrl = `https://drive.google.com/thumbnail?id=${thumbMap[key].id}&sz=w400`;
            }
