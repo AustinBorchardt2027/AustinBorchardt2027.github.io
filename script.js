@@ -203,51 +203,16 @@ async function initWithGate() {
   }
 }
 
-// ─── DEMO DATA ────────────────────────────────────────────────
-const DEMO_MOVIES = [
-  { title: "Inception", resolution: "4K", maturityRating: "PG-13", releaseDate: "2010-07-16", fileSize: "58 GB", imdbRating: "8.8" },
-  { title: "The Dark Knight", resolution: "4K", maturityRating: "PG-13", releaseDate: "2008-07-18", fileSize: "62 GB", imdbRating: "9.0" },
-  { title: "Interstellar", resolution: "4K", maturityRating: "PG-13", releaseDate: "2014-11-07", fileSize: "55 GB", imdbRating: "8.6" },
-  { title: "Parasite", resolution: "1080p", maturityRating: "R", releaseDate: "2019-11-08", fileSize: "14 GB", imdbRating: "8.5" },
-  { title: "Dune", resolution: "4K", maturityRating: "PG-13", releaseDate: "2021-10-22", fileSize: "47 GB", imdbRating: "8.0" },
-  { title: "The Godfather", resolution: "1080p", maturityRating: "R", releaseDate: "1972-03-24", fileSize: "20 GB", imdbRating: "9.2" },
-  { title: "Pulp Fiction", resolution: "1080p", maturityRating: "R", releaseDate: "1994-10-14", fileSize: "18 GB", imdbRating: "8.9" },
-  { title: "Mad Max Fury Road", resolution: "4K", maturityRating: "R", releaseDate: "2015-05-15", fileSize: "50 GB", imdbRating: "8.1" },
-  { title: "Oppenheimer", resolution: "4K", maturityRating: "R", releaseDate: "2023-07-21", fileSize: "72 GB", imdbRating: "8.3" },
-  { title: "Everything Everywhere All at Once", resolution: "1080p", maturityRating: "R", releaseDate: "2022-03-25", fileSize: "12 GB", imdbRating: "7.8" },
-  { title: "Arrival", resolution: "1080p", maturityRating: "PG-13", releaseDate: "2016-11-11", fileSize: "16 GB", imdbRating: "7.9" },
-  { title: "The Revenant", resolution: "4K", maturityRating: "R", releaseDate: "2015-12-25", fileSize: "53 GB", imdbRating: "8.0" },
-  { title: "Blade Runner 2049", resolution: "4K", maturityRating: "R", releaseDate: "2017-10-06", fileSize: "60 GB", imdbRating: "8.0" },
-  { title: "1917", resolution: "1080p", maturityRating: "R", releaseDate: "2019-12-25", fileSize: "22 GB", imdbRating: "8.3" },
-  { title: "Whiplash", resolution: "1080p", maturityRating: "R", releaseDate: "2014-10-10", fileSize: "11 GB", imdbRating: "8.5" },
-  { title: "The Grand Budapest Hotel", resolution: "1080p", maturityRating: "R", releaseDate: "2014-03-28", fileSize: "9 GB", imdbRating: "8.1" },
-  { title: "Tenet", resolution: "4K", maturityRating: "PG-13", releaseDate: "2020-09-03", fileSize: "48 GB", imdbRating: "7.3" },
-  { title: "Joker", resolution: "4K", maturityRating: "R", releaseDate: "2019-10-04", fileSize: "44 GB", imdbRating: "8.4" },
-  { title: "The Shawshank Redemption", resolution: "1080p", maturityRating: "R", releaseDate: "1994-09-23", fileSize: "15 GB", imdbRating: "9.3" },
-  { title: "Schindler's List", resolution: "1080p", maturityRating: "R", releaseDate: "1993-12-15", fileSize: "19 GB", imdbRating: "8.9" },
-];
-
-const DEMO_DRIVE = {
-  "inception": { id: "demo1", link: "#" },
-  "thedarkknight": { id: "demo2", link: "#" },
-  "interstellar": { id: "demo3", link: "#" },
-  "parasite": { id: "demo4", link: "#" },
-  "dune": { id: "demo5", link: "#" },
-  "oppenheimer": { id: "demo6", link: "#" },
-  "pulpfiction": { id: "demo7", link: "#" },
-  "whiplash": { id: "demo8", link: "#" },
-  "theshawshankredemption": { id: "demo9", link: "#" },
-};
-
 // ─── STATE ────────────────────────────────────────────────────
-let allMovies  = [];
-let allShows   = [];   // parsed show entries from the Shows sheet
-let filtered   = [];
+let allMovies   = [];
+let allShows    = []; 
+let filtered    = [];
 let currentSort = 'title';
 let currentDir  = 'asc';
 let isDemoMode  = false;
-let activeTab  = 'movies'; // 'movies' | 'shows' | 'stats'
+let activeTab   = 'movies'; 
 let posterMap   = {};
+let thumbMap    = {};  // Map for storing episode thumbnail files
 
 // Active sidebar filters
 let activeFilters = {
@@ -314,8 +279,6 @@ async function postRequest(title) {
     document.head.appendChild(script);
   });
 }
-
-requestCounts = {};
 
 // ─── RATINGS ─────────────────────────────────────────────────
 const LOCAL_RATINGS_KEY = 'thedrive_ratings_v1';
@@ -561,11 +524,6 @@ function updateLastUpdated(date) {
 function setProgress(pct) { scanFill.style.width = pct + '%'; }
 
 // ─── SHOWS SHEET PARSER ───────────────────────────────────────
-// Expected sheet columns (row 1 = headers):
-//   show_title | season | episode | episode_title | drive_link | poster_url | imdb_rating | status
-//   status: "uploaded" = available; anything else or blank with no link = not uploaded
-//
-// Groups into: allShows = [{ title, poster, imdbRating, seasons:[{ num, episodes:[{ num, title, link, available }] }] }]
 function parseShowsCSV(text) {
   const rows = parseCSV(text);
   const showMap = new Map();
@@ -703,11 +661,16 @@ function openShowOverlay(show) {
     `;
   }
 
-  // Season tabs
+  // Force the parent container to use our new split-column layout class
+  if (seasonsEl && seasonsEl.parentElement) {
+    seasonsEl.parentElement.classList.add('show-overlay-split-layout');
+  }
+
+  // Generate Season tabs (Column left)
   if (seasonsEl) {
     seasonsEl.innerHTML = show.seasons.map(s => `
       <button class="show-overlay-season-btn ${s.num === overlayCurrentSeason ? 'active' : ''}" data-season="${s.num}">
-        S${s.num}
+        Season ${s.num}
       </button>
     `).join('');
     seasonsEl.querySelectorAll('.show-overlay-season-btn').forEach(btn => {
@@ -734,17 +697,47 @@ function renderOverlayEpisodes() {
   const season = overlayCurrentShow.seasons.find(s => s.num === overlayCurrentSeason);
   if (!season) { episodesEl.innerHTML = ''; return; }
 
-  episodesEl.innerHTML = season.episodes.map(ep => `
-    <div class="show-overlay-ep ${ep.available ? 'show-overlay-ep--available' : 'show-overlay-ep--missing'}">
-      <span class="show-overlay-ep-num">E${ep.num}</span>
-      <span class="show-overlay-ep-title">${ep.title ? escHtml(ep.title) : 'Episode ' + ep.num}</span>
-      ${ep.available && ep.link
-        ? `<a class="show-overlay-ep-play drive-link" href="${escHtml(ep.link)}" target="_blank" rel="noopener" data-title="${escHtml(overlayCurrentShow.title)}" title="Watch">&#9654;</a>`
-        : ep.available
-          ? `<span class="show-overlay-ep-play show-overlay-ep-play--nolink" title="Available (no direct link)">&#9654;</span>`
-          : `<span class="show-overlay-ep-status">NOT UPLOADED</span>`}
-    </div>
-  `).join('');
+  const padS = String(season.num).padStart(2, '0');
+
+  episodesEl.innerHTML = season.episodes.map(ep => {
+    const padE = String(ep.num).padStart(2, '0');
+    // We normalize a search string to find the matching thumbnail in thumbMap
+    // E.g. "breakingbads01e01"
+    const prefix = normalize(`${overlayCurrentShow.title} s${padS}e${padE}`);
+    
+    let thumbUrl = '';
+    for (const key of Object.keys(thumbMap)) {
+       // Look for image files that match the prefix and contain "thumb"
+       if (key.startsWith(prefix) && key.includes('thumb')) {
+           // We can ask Google Drive to generate a thumbnail dynamically based on the file ID!
+           if (thumbMap[key].id) {
+               thumbUrl = `https://drive.google.com/thumbnail?id=${thumbMap[key].id}&sz=w400`;
+           }
+           break;
+       }
+    }
+
+    const epTitleStr = ep.title ? escHtml(ep.title) : 'Episode ' + ep.num;
+
+    return `
+      <div class="show-overlay-ep ${ep.available ? 'show-overlay-ep--available' : 'show-overlay-ep--missing'}">
+        <div class="ep-thumb-wrapper">
+           ${thumbUrl 
+             ? `<img src="${thumbUrl}" class="ep-thumb" alt="${epTitleStr}" loading="lazy" />` 
+             : `<div class="ep-thumb-placeholder">E${ep.num}</div>`}
+           
+           ${ep.available && ep.link
+             ? `<a class="ep-play-btn drive-link" href="${escHtml(ep.link)}" target="_blank" rel="noopener" data-title="${escHtml(overlayCurrentShow.title)}">&#9654;</a>`
+             : ''}
+        </div>
+        <div class="ep-details">
+           <span class="ep-num-badge">S${padS} E${padE}</span>
+           <span class="ep-title-text">${epTitleStr}</span>
+           ${!ep.available ? `<span class="ep-status-missing">NOT UPLOADED</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function closeShowOverlay() {
@@ -775,7 +768,6 @@ function filterAndRenderShows() {
     ? allShows.filter(s => normalize(s.title).includes(q))
     : allShows;
 
-  // Temporarily replace allShows for render, then restore
   const saved = allShows;
   allShows = visible;
   renderShows();
@@ -807,9 +799,6 @@ function fetchScriptJSON(url, bustCache = false) {
   });
 }
 
-function saveCache(_data) {}
-function loadCache() { return null; }
-
 function applyDriveData(rawData, csvRows) {
   const rawMovies = rawData.movies || rawData;
   posterMap = rawData.posters || {};
@@ -825,6 +814,15 @@ function applyDriveData(rawData, csvRows) {
   } else {
     try { const stored = JSON.parse(localStorage.getItem('thedrive_rating_counts_v1') || '{}'); ratingCounts = stored; } catch(e) {}
   }
+
+  // Extract all Image files for dynamic thumbnails
+  thumbMap = {};
+  for (const [k, v] of Object.entries(rawMovies)) {
+    if (typeof v === 'object' && v !== null && v.mimeType && v.mimeType.startsWith('image/')) {
+      thumbMap[k] = v;
+    }
+  }
+
   const videoMimeTypes = ['video/', 'application/octet-stream'];
   const driveMap = Object.fromEntries(
     Object.entries(rawMovies).filter(([, val]) =>
@@ -832,6 +830,7 @@ function applyDriveData(rawData, csvRows) {
       (!val.mimeType || videoMimeTypes.some(t => val.mimeType.startsWith(t)))
     )
   );
+
   allMovies = mergeData(csvRows, driveMap, posterMap);
   render();
   populateFilterCheckboxes();
@@ -842,7 +841,6 @@ function applyDriveData(rawData, csvRows) {
   if (allShows.length > 0) {
     allShows.forEach(show => {
       const autoPoster = posterMap[normalize(show.title)];
-      // If the sheet didn't have a link, but we found a poster in the Drive folder, use it
       if (!show.poster && autoPoster) {
         show.poster = autoPoster;
       }
@@ -919,13 +917,7 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
 
   setProgress(25);
 
-  // ── Cache-first strategy ──────────────────────────────────────────────────
-  // Always try the server scan cache first. If we get a valid payload, show
-  // it immediately (even if it's a bit old) so users never wait for a full
-  // Drive scan. Then, if the cache is getting stale (> 20 min), kick off a
-  // silent background refresh so the *next* load is fast too.
-  // Only fall through to a full scan if the cache is completely missing.
-  const BACKGROUND_REFRESH_THRESHOLD_S = 20 * 60; // 20 minutes
+  const BACKGROUND_REFRESH_THRESHOLD_S = 20 * 60; 
 
   let serverPayload = null, cacheAgeS = null;
   try {
@@ -937,7 +929,6 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
   } catch (e) { console.warn('getScanCache failed:', e); }
 
   if (serverPayload) {
-    // Serve the cached data immediately — user sees movies right away
     applyDriveData(serverPayload, csvRows);
     setProgress(100);
     setTimeout(() => scanBar.classList.add('hidden'), 300);
@@ -945,15 +936,12 @@ async function loadData(sheetURL, scriptURL, forceRefresh = false) {
     const cacheDate = cacheAgeS !== null ? new Date(Date.now() - cacheAgeS * 1000) : new Date();
     updateLastUpdated(cacheDate);
 
-    // If cache is aging, silently rescan in the background so next visit is fast
     if (cacheAgeS !== null && cacheAgeS > BACKGROUND_REFRESH_THRESHOLD_S) {
-      console.log('[Cache] Age ' + Math.round(cacheAgeS / 60) + ' min — triggering background refresh');
       setTimeout(() => loadDataBulkFallback(driveURL, csvRows, false, true), 2000);
     }
     return;
   }
 
-  // Cache is cold — do a full scan (shows progress bar to user)
   await loadDataBulkFallback(driveURL, csvRows, false, false);
 }
 
@@ -977,14 +965,14 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
   }
 
   const accumMovies = {}, accumPosters = {}, accumRequests = {}, accumRatings = {};
-  const SCAN_BATCH_SIZE = 10, CONCURRENCY = 2; // Reduced from 6 to avoid Drive rate limits
-  const INTER_BATCH_DELAY_MS = 350; // Pause between waves to stay under quota
+  const SCAN_BATCH_SIZE = 10, CONCURRENCY = 2; 
+  const INTER_BATCH_DELAY_MS = 350; 
   const total = files.length;
   const progressStart = 25, progressEnd = 95;
   const batches = [];
   for (let i = 0; i < total; i += SCAN_BATCH_SIZE) batches.push(files.slice(i, i + SCAN_BATCH_SIZE));
   let completedFiles = 0;
-  const failedFileIds = []; // Collect errored files for a retry pass
+  const failedFileIds = []; 
 
   for (let i = 0; i < batches.length; i += CONCURRENCY) {
     const concurrentBatches = batches.slice(i, i + CONCURRENCY);
@@ -1012,9 +1000,7 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
     if (i + CONCURRENCY < batches.length) await new Promise(r => setTimeout(r, INTER_BATCH_DELAY_MS));
   }
 
-  // Retry pass — wait 3s then re-scan any files that errored the first time
   if (failedFileIds.length > 0) {
-    console.log('[Scan] Retrying ' + failedFileIds.length + ' failed file(s) after 3s...');
     await new Promise(r => setTimeout(r, 3000));
     const retryBatches = [];
     for (let i = 0; i < failedFileIds.length; i += SCAN_BATCH_SIZE) retryBatches.push(failedFileIds.slice(i, i + SCAN_BATCH_SIZE));
@@ -1024,7 +1010,7 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
         const isPosters = batch.map(f => f.isPosters ? '1' : '0').join(',');
         const result    = await jsonpAction(driveURL + '?action=scanFiles&fileIds=' + encodeURIComponent(fileIds) + '&isPosters=' + encodeURIComponent(isPosters) + '&key=' + encodeURIComponent(getSavedKey() || '') + '&did=' + encodeURIComponent(getDeviceId()));
         if (result && result.ok) { Object.assign(accumMovies, result.movies || {}); Object.assign(accumPosters, result.posters || {}); applyDriveData({ movies: accumMovies, posters: accumPosters, requests: accumRequests, ratings: accumRatings }, csvRows); }
-      } catch(err) { console.warn('[Scan] Retry batch also failed:', err); }
+      } catch(err) {}
       await new Promise(r => setTimeout(r, 500));
     }
   }
@@ -1047,9 +1033,6 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
   } catch(e) {}
 
   try {
-    // Fetch request counts live from the sheet so the full-scan payload
-    // always contains up-to-date data (getScanCache would be stale here
-    // since the new cache hasn't been written yet).
     const reqResult = await jsonpAction(driveURL + '?action=getRequests&key=' + encodeURIComponent(getSavedKey() || '') + '&did=' + encodeURIComponent(getDeviceId()) + '&_cb=' + Date.now());
     if (reqResult && reqResult.requests) {
       for (const [k, v] of Object.entries(reqResult.requests)) liveRequests[normalize(k)] = v;
@@ -1104,7 +1087,6 @@ function mergeData(rows, driveMap, posterMap = {}) {
 
 // ─── SIDEBAR FILTER POPULATION ────────────────────────────────
 function populateFilterCheckboxes() {
-  // Maturity
   const maturityEl = $('filter-maturity-checks');
   if (maturityEl) {
     const ratings = [...new Set(allMovies.map(m => m.maturityRating).filter(Boolean))].sort((a, b) => {
@@ -1119,7 +1101,6 @@ function populateFilterCheckboxes() {
       </label>`).join('');
   }
 
-  // Resolution
   const resEl = $('filter-resolution-checks');
   if (resEl) {
     const resolutions = [...new Set(allMovies.map(m => m.resolution).filter(Boolean))].sort((a, b) => parseResolutionScore(b) - parseResolutionScore(a));
@@ -1130,7 +1111,6 @@ function populateFilterCheckboxes() {
       </label>`).join('');
   }
 
-  // Re-bind checkbox listeners
   bindSidebarCheckboxes();
   updateClearBtn();
 }
@@ -1219,14 +1199,12 @@ function render() { applyFilters(); }
 
 function renderCurrentView() {
   if (hasActiveFilters()) {
-    // Switch to grid view when any filter/search is active
     rowView.classList.remove('active');
     gridView.classList.add('active');
     renderGrid();
     const total = allMovies.length, shown = filtered.length;
     if (resultsSummary) resultsSummary.textContent = shown === total ? `Showing all ${total} films` : `Showing ${shown} of ${total} films`;
   } else {
-    // Default: show row-based browse view
     gridView.classList.remove('active');
     rowView.classList.add('active');
     renderRows();
@@ -1255,7 +1233,6 @@ function renderRows() {
 
   if (rowAvailableEl)  renderRowCards(rowAvailableEl, availableMovies.slice(0, 30));
 
-  // Hide Most Requested row if no requests yet
   if (rowRequestedEl && rowRequestedSec) {
     if (requestedMovies.length > 0) {
       rowRequestedSec.style.display = '';
@@ -1276,7 +1253,6 @@ function renderRowCards(container, movies) {
     frag.appendChild(card);
   });
   container.appendChild(frag);
-  // Update button visibility after cards are rendered
   const scroller = container.closest('.movie-row-scroll');
   if (scroller) updateRowScrollBtns(scroller);
 }
@@ -1292,11 +1268,9 @@ function renderRowCards(container, movies) {
     if (!track) return;
     const scroller = track.closest('.movie-row-scroll');
     if (!scroller) return;
-    // Scroll by ~3 card widths (200px card + 14px gap)
     scroller.scrollBy({ left: dir * (214 * 3), behavior: 'smooth' });
   });
 
-  // Update button visibility on scroll
   document.addEventListener('scroll', handleRowScroll, true);
 
   function handleRowScroll(e) {
@@ -1443,7 +1417,6 @@ function escHtml(str) {
 
 // ─── EVENTS ───────────────────────────────────────────────────
 
-// Search
 let searchTimer, searchLogTimer;
 if (searchInput) {
   searchInput.addEventListener('input', () => {
@@ -1477,7 +1450,6 @@ if (clearSearch) {
   });
 }
 
-// Sidebar sort
 if (sortBy) {
   sortBy.addEventListener('change', () => {
     currentSort = sortBy.value;
@@ -1498,12 +1470,10 @@ if (sortDirBtn) {
   });
 }
 
-// Clear all filters button
 if (sidebarClearBtn) {
   sidebarClearBtn.addEventListener('click', clearAllFilters);
 }
 
-// Watch link clicks
 const mainContent = document.getElementById('main-content');
 if (mainContent) {
   mainContent.addEventListener('click', e => {
@@ -1519,7 +1489,6 @@ if (mainContent) {
     document.head.appendChild(script);
   });
 
-  // Rating buttons
   mainContent.addEventListener('click', async e => {
     const btn = e.target.closest('.rating-btn');
     if (!btn) return;
@@ -1538,7 +1507,6 @@ if (mainContent) {
     else showToast('Rating removed for ' + title);
   });
 
-  // Request buttons
   mainContent.addEventListener('click', async e => {
     const btn = e.target.closest('.request-btn');
     if (!btn || btn.classList.contains('request-btn--done')) return;
@@ -1567,7 +1535,6 @@ function setRequestedState(title, count) {
   });
 }
 
-// ─── FOOTER COMMENT FORM ─────────────────────────────────────
 (function() {
   const submitBtn = document.getElementById('footer-submit');
   const nameInput = document.getElementById('footer-name');
@@ -1603,7 +1570,6 @@ function setRequestedState(title, count) {
   });
 })();
 
-// ─── REFRESH BUTTON ───────────────────────────────────────────
 if (refreshBtn) {
   refreshBtn.addEventListener('click', async () => {
     if (refreshBtn.classList.contains('spinning')) return;
@@ -1623,7 +1589,6 @@ if (refreshBtn) {
   });
 }
 
-// ─── INIT ─────────────────────────────────────────────────────
 (async function init() {
   const savedSettings = loadSettings();
   if (savedSettings) applySettings(savedSettings);
@@ -1656,11 +1621,8 @@ if (refreshBtn) {
       if (tab === 'shows')  filterAndRenderShows();
     });
   });
-
-  // ── Shows search now handled by main search bar ──
 })();
 
-// ─── ONLINE COUNT ─────────────────────────────────────────────
 function fetchOnlineCount() {
   const cbName = '__onlineCallback_' + Date.now();
   const script = document.createElement('script');
@@ -1675,30 +1637,24 @@ function fetchOnlineCount() {
   document.head.appendChild(script);
 }
 
-// ─── RELIABLE HEARTBEAT ───────────────────────────────────────
-// Pings the server every 5 s. If 3 consecutive pings receive no
-// response (timeout or network error), the client is considered
-// offline and stops contributing to the online count until the
-// next successful ping.
-const HEARTBEAT_INTERVAL_MS  = 5000;   // ping every 5 s
-const HEARTBEAT_TIMEOUT_MS   = 4500;   // how long to wait for a reply
-const HEARTBEAT_MISS_LIMIT   = 3;      // misses before marking offline
+const HEARTBEAT_INTERVAL_MS  = 5000;   
+const HEARTBEAT_TIMEOUT_MS   = 4500;   
+const HEARTBEAT_MISS_LIMIT   = 3;      
 
 let heartbeatMissCount  = 0;
-let heartbeatOnline     = true;  // this client's own online state
+let heartbeatOnline     = true;  
 let heartbeatIntervalId = null;
 
 function startHeartbeat() {
   if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
   heartbeatIntervalId = setInterval(pingHeartbeat, HEARTBEAT_INTERVAL_MS);
-  pingHeartbeat(); // fire immediately so we don't wait 5 s on load
+  pingHeartbeat(); 
 }
 
 function pingHeartbeat() {
   const cbName = '__heartbeatCallback_' + Date.now();
   const script = document.createElement('script');
 
-  // If no reply arrives within the timeout window, count it as a miss
   const timer = setTimeout(() => {
     delete window[cbName];
     if (script.parentNode) script.parentNode.removeChild(script);
@@ -1734,7 +1690,6 @@ function _heartbeatSuccess(data) {
     heartbeatOnline = true;
     console.log('[heartbeat] back online');
   }
-  // Handle force-reauth from server (key cleared remotely)
   if (data && data.keyCleared) {
     localStorage.removeItem('driveAccessKey');
     location.reload();
@@ -1749,10 +1704,8 @@ function _heartbeatMiss() {
   }
 }
 
-/** Returns true if this client is considered online (recent ping success). */
 function isClientOnline() { return heartbeatOnline; }
 
-// ─── STATS TAB ────────────────────────────────────────────────
 let statsLoaded = false, statsLoadedAt = 0;
 let chartLibrary = null, chartUsers = null, chartPresence = null;
 let lastPresenceAppendAt = 0;
@@ -1900,11 +1853,7 @@ function presenceChartOptions(times) {
 
 function pushPresencePing() {
   const onlineEl = $('online-count');
-  // If this client itself is considered offline (missed 3+ heartbeats),
-  // report 0 so we don't inflate the server count while disconnected.
   const selfCounts = isClientOnline() ? 1 : 0;
-  // Use the displayed server count but floor it at selfCounts so we
-  // never report a count lower than our own presence.
   const displayedCount = onlineEl ? (parseInt(onlineEl.textContent, 10) || 0) : 0;
   const count = Math.max(selfCounts, displayedCount);
   const cbName = '__presencePingCallback_' + Date.now();
