@@ -2092,3 +2092,273 @@ tbody tr:hover td { background: var(--surface2); }
   .tab-nav { padding: 0 16px; }
   .site-header .header-inner { flex-wrap: wrap; gap: 8px; }
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   SHOWS TAB
+   ══════════════════════════════════════════════════════════════ */
+
+.shows-page {
+  padding: 28px 28px 60px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.shows-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.shows-search-wrap {
+  max-width: 320px;
+  flex: 1;
+}
+
+.shows-count-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.shows-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+/* ── Show Card ── */
+.show-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color var(--transition), transform var(--transition), box-shadow var(--transition);
+  animation: card-in .3s ease both;
+}
+
+.show-card:hover {
+  border-color: var(--border2);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+}
+
+/* ── Show Poster ── */
+.show-poster {
+  width: 100%;
+  aspect-ratio: 2/3;
+  background: var(--surface2);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.show-poster::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  z-index: 0;
+}
+
+.show-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  position: relative;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity .3s ease, transform .4s ease;
+}
+
+.show-poster img.loaded { opacity: 1; }
+
+.show-card:hover .show-poster img { transform: scale(1.04); }
+
+.show-poster-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 24px 10px 8px;
+  background: linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 100%);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 2;
+}
+
+.show-ep-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .5px;
+  color: rgba(255,255,255,.85);
+  background: rgba(0,0,0,.45);
+  padding: 2px 7px;
+  border-radius: 99px;
+  backdrop-filter: blur(4px);
+}
+
+/* ── Show card text ── */
+.show-title {
+  font-family: var(--font-head);
+  font-size: 17px;
+  letter-spacing: 1px;
+  color: var(--text);
+  line-height: 1.1;
+  min-height: calc(1.1em * 2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 12px 14px 0;
+}
+
+.show-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.show-imdb { color: var(--accent); }
+
+/* ── Season accordion ── */
+.show-seasons {
+  padding: 10px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+}
+
+.show-season-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+  text-align: left;
+}
+
+.show-season-btn:hover {
+  background: var(--border);
+  border-color: var(--border2);
+}
+
+.show-season-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .5px;
+  color: var(--text);
+  flex: 1;
+}
+
+.show-season-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.show-season-chevron {
+  font-size: 14px;
+  color: var(--text-dim);
+  transition: transform .2s ease;
+  line-height: 1;
+}
+
+/* ── Episode list ── */
+.show-episode-list {
+  margin-top: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.show-episode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--transition);
+}
+
+.show-episode:last-child { border-bottom: none; }
+
+.show-episode:hover { background: var(--surface2); }
+
+.show-ep-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 28px;
+  flex-shrink: 0;
+}
+
+.show-ep-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.show-episode--missing .show-ep-title { color: var(--text-dim); }
+
+.show-ep-play {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(232,197,71,.12);
+  color: var(--accent);
+  font-size: 10px;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background var(--transition);
+}
+
+.show-ep-play:hover { background: rgba(232,197,71,.28); }
+
+.show-ep-play--nolink {
+  opacity: .4;
+  cursor: default;
+  pointer-events: none;
+}
+
+.show-ep-status {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .5px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .shows-page { padding: 16px 16px 40px; }
+  .shows-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .show-title { font-size: 14px; padding: 8px 10px 0; }
+  .show-meta  { padding: 4px 10px 0; }
+  .show-seasons { padding: 8px 8px 10px; }
+}
