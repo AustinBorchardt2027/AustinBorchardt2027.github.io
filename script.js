@@ -590,6 +590,7 @@ async function loadShowsData(forceRefresh = false) {
         encodeURIComponent(getSavedKey() || '') +
         '&did=' + encodeURIComponent(getDeviceId())
       );
+      console.log('[shows] getShowFiles keys:', data && data.shows ? Object.keys(data.shows) : data);
       if (data && data.ok && data.shows) mergeShowDriveFiles(data.shows);
     } catch(e) {
       console.warn('getShowFiles error:', e);
@@ -610,6 +611,7 @@ function mergeShowDriveFiles(showFileMap) {
         const epCode = normalize('s' + padS + 'e' + padE);
         for (const [key, val] of Object.entries(showFileMap)) {
           if (key.startsWith(showNorm) && key.includes(epCode)) {
+            console.log('[shows] matched:', key, '→', show.title, 'S' + padS + 'E' + padE);
             ep.link      = val.link;
             ep.available = true;
             break;
