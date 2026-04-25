@@ -8,7 +8,7 @@
 const SHEET_CSV_URL    = 'https://docs.google.com/spreadsheets/d/1N30xtjyc2xgfDstYp1BOOWqrPpoWlSmS9L-iYafYBUU/export?format=csv&gid=121928462';
 // Shows sheet (gid=1799938400)
 const SHOWS_CSV_URL    = 'https://docs.google.com/spreadsheets/d/1N30xtjyc2xgfDstYp1BOOWqrPpoWlSmS9L-iYafYBUU/export?format=csv&gid=1799938400';
-const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwBWxYO905TW4Np1JAxFKgbGApQXtO-HDmifw2mz_6ZIVn9Px5sK-YBCPB7ldzwBIlr9Q/exec';
+const DRIVE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwOrUlOJ2ahLzoPJcmuQpYK8caFC_nhaDJ9SkOpt4ohRUw-ii8hv0nNbUwke-_jbP3bBw/exec';
 
 // Auto-reload the full tab every 30 minutes
 const AUTO_RELOAD_MS = 30 * 60 * 1000;
