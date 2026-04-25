@@ -837,6 +837,18 @@ function applyDriveData(rawData, csvRows) {
   populateFilterCheckboxes();
   updateCounts();
   updateLastUpdated();
+
+  // Auto-match show posters from the Drive folder
+  if (allShows.length > 0) {
+    allShows.forEach(show => {
+      const autoPoster = posterMap[normalize(show.title)];
+      // If the sheet didn't have a link, but we found a poster in the Drive folder, use it
+      if (!show.poster && autoPoster) {
+        show.poster = autoPoster;
+      }
+    });
+    renderShows();
+  }
 }
 
 function fetchRatings(scriptURL, isRefresh = false) {
