@@ -780,7 +780,7 @@ function renderOverlayEpisodes() {
              : `<div class="ep-thumb-placeholder">E${ep.num}</div>`}
            
            ${ep.available && ep.link
-             ? `<a class="ep-play-btn drive-link" href="${escHtml(ep.link)}" target="_blank" rel="noopener" data-title="${escHtml(overlayCurrentShow.title)}">&#9654;</a>`
+             ? `<a class="ep-play-btn" href="${escHtml(ep.link)}" target="_blank" rel="noopener" data-title="${escHtml(overlayCurrentShow.title)}">&#9654;</a>`
              : ''}
         </div>
         <div class="ep-details">
