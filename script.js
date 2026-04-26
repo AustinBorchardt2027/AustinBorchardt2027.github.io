@@ -1987,7 +1987,7 @@ if (refreshBtn) {
 
     // Animate fake progress (15 → 90) while waiting
     const scanStart = Date.now();
-    const FAKE_DURATION_MS = 40000;
+    const FAKE_DURATION_MS = 20000;
     const progressInterval = setInterval(() => {
       const pct = 15 + Math.min(75, ((Date.now() - scanStart) / FAKE_DURATION_MS) * 75);
       setProgress(pct);
