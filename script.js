@@ -446,6 +446,16 @@ function parseRuntimeMinutes(str) {
   return m ? parseInt(m[1]) : 0;
 }
 
+function formatEpRuntime(str) {
+  const mins = parseRuntimeMinutes(str);
+  if (!mins) return '';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0 && m > 0) return h + 'h ' + m + 'm';
+  if (h > 0)          return h + 'h';
+  return m + 'm';
+}
+
 const MATURITY_ORDER = { 'G': 1, 'PG': 2, 'PG-13': 3, 'PG13': 3, 'R': 4, 'NC-17': 5, 'NR': 6 };
 
 function parseResolutionScore(res) {
@@ -784,7 +794,7 @@ function renderOverlayEpisodes() {
              : ''}
         </div>
         <div class="ep-details">
-           <span class="ep-num-badge">S${padS} E${padE}</span>
+           <span class="ep-num-badge">S${padS} E${padE}${formatEpRuntime(ep.runtime) ? '  ·  ' + formatEpRuntime(ep.runtime) : ''}</span>
            <span class="ep-title-text">${epTitleStr}</span>
            <span class="status-pill ${ep.available ? 'status-available' : 'status-missing'}">${ep.available ? 'AVAILABLE' : 'NOT UPLOADED'}</span>
         </div>
