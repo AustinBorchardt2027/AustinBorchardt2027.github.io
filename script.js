@@ -722,11 +722,13 @@ function openShowOverlay(show) {
         overlayCurrentSeason = parseInt(btn.dataset.season, 10);
         seasonsEl.querySelectorAll('.show-overlay-season-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.season, 10) === overlayCurrentSeason));
         renderOverlayEpisodes();
+        fetchThumbsForSeason(overlayCurrentShow, overlayCurrentSeason);
       });
     });
   }
 
   renderOverlayEpisodes();
+  fetchThumbsForSeason(show, overlayCurrentSeason);
 
   if (overlay) {
     overlay.removeAttribute('hidden');
@@ -860,7 +862,15 @@ function fetchScriptJSON(url, bustCache = false) {
 
 function applyDriveData(rawData, csvRows) {
   const rawMovies = rawData.movies || rawData;
-  posterMap = rawData.posters || {};
+  // Normalize poster keys on assignment so findPosterMatch fast-path always works.
+  // Use normalizeFilename (strips years + brackets) so movie posters like
+  // 'The Dark Knight (2008).jpg' key as 'thedarkknight', matching the title lookup.
+  posterMap = {};
+  for (const [k, v] of Object.entries(rawData.posters || {})) {
+    // Strip extension then normalize — keep year/resolution so movie poster keys
+    // like 'The Dark Knight (2008) [1080p]' can be looked up via their drive filename.
+    posterMap[normalize(k.replace(/\.[a-z0-9]{2,5}$/i, ''))] = v;
+  }
   if (rawData.requests) {
     requestCounts = {};
     for (const [k, v] of Object.entries(rawData.requests)) requestCounts[normalize(k)] = v;
@@ -1136,8 +1146,8 @@ async function refreshPostersInBackground(driveURL, csvRows) {
 
   const BATCH = 10;
 
-  // Helper: scan one batch, merge results into global maps, re-render immediately
-  async function scanAndApplyBatch(batch, isThumbBatch) {
+  // Helper: scan one batch of poster files, merge results, re-render immediately
+  async function scanAndApplyBatch(batch) {
     const fileIds   = batch.map(f => f.id).join(',');
     const isPosters = batch.map(() => '1').join(',');
     let result;
@@ -1169,7 +1179,7 @@ async function refreshPostersInBackground(driveURL, csvRows) {
 
     if (!postersChanged && !thumbsChanged) return;
 
-    if (!isThumbBatch && postersChanged) {
+    if (postersChanged) {
       // Update show card posters immediately
       let showsChanged = false;
       allShows.forEach(show => {
@@ -1178,43 +1188,106 @@ async function refreshPostersInBackground(driveURL, csvRows) {
       });
       if (showsChanged && showDriveMerged) renderShows();
 
-      // Update movie card posters immediately
+      // Update movie card posters immediately — match via drive filename (same as poster filename)
       let moviesChanged = false;
       allMovies.forEach(m => {
-        const fresh = findPosterMatch(m.title, posterMap);
+        const driveKey = m.driveResolution ? normalize(m.driveResolution) : null;
+        const fresh = (driveKey && posterMap[driveKey])
+          ? posterMap[driveKey]
+          : findPosterMatch(m.title, posterMap);
         if (fresh && m.poster !== fresh) { m.poster = fresh; moviesChanged = true; }
       });
       if (moviesChanged) renderCurrentView();
     }
 
-    if (isThumbBatch && (thumbsChanged || postersChanged)) {
-      // Refresh the open episode overlay if any
-      if (overlayCurrentShow) renderOverlayEpisodes();
-    }
   }
 
   // Phase 1: show/movie posters — render each batch as it arrives
   for (let i = 0; i < posterFiles.length; i += BATCH) {
-    await scanAndApplyBatch(posterFiles.slice(i, i + BATCH), false);
+    await scanAndApplyBatch(posterFiles.slice(i, i + BATCH));
     if (i + BATCH < posterFiles.length) await new Promise(r => setTimeout(r, 300));
   }
 
-  // Phase 2: episode thumbnails — render each batch as it arrives
+  // Episode thumbnails are fetched on-demand in fetchThumbsForSeason()
+}
+
+// ─── ON-DEMAND SEASON THUMBNAIL FETCH ────────────────────────
+// Called when a show overlay opens or a season tab is clicked.
+// Fetches only the thumbnail files for that show+season from Drive,
+// then re-renders the episode list as each batch arrives.
+const thumbFetchCache = new Set(); // tracks "showkey:season" pairs already fetched
+
+async function fetchThumbsForSeason(show, seasonNum) {
+  const cacheKey = normalize(show.title) + ':' + seasonNum;
+  if (thumbFetchCache.has(cacheKey)) return; // already fetched this session
+  thumbFetchCache.add(cacheKey);
+
+  const driveURL = DRIVE_SCRIPT_URL;
+  if (!driveURL || driveURL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') return;
+
+  let allPosterFiles = [];
+  try {
+    const listData = await jsonpAction(driveURL + '?action=getFileList');
+    if (listData && listData.ok && Array.isArray(listData.files)) {
+      allPosterFiles = listData.files.filter(f => f.isPosters);
+    }
+  } catch(e) { return; }
+
+  // Filter to only thumb files that match this show + season (per-episode thumbnails)
+  const showNorm   = normalize(show.title);
+  const padS       = String(seasonNum).padStart(2, '0');
+  const seasonCode = 's' + padS; // e.g. 's01' — matches s01e01, s01e02, etc.
+
+  const thumbFiles = allPosterFiles.filter(f => {
+    const n = normalize(f.name || '');
+    // Must belong to this show, be a thumbnail, and contain the season code
+    // (which appears as part of the episode code s01e01, s01e02... in the filename)
+    return n.includes('thumb') && n.startsWith(showNorm) && n.includes(seasonCode + 'e');
+  });
+
+  if (!thumbFiles.length) return;
+
+  const BATCH = 10;
   for (let i = 0; i < thumbFiles.length; i += BATCH) {
-    await scanAndApplyBatch(thumbFiles.slice(i, i + BATCH), true);
-    if (i + BATCH < thumbFiles.length) await new Promise(r => setTimeout(r, 300));
+    const batch     = thumbFiles.slice(i, i + BATCH);
+    const fileIds   = batch.map(f => f.id).join(',');
+    const isPosters = batch.map(() => '1').join(',');
+    try {
+      const result = await jsonpAction(
+        driveURL + '?action=scanFiles'
+        + '&fileIds='   + encodeURIComponent(fileIds)
+        + '&isPosters=' + encodeURIComponent(isPosters)
+        + '&key='       + encodeURIComponent(getSavedKey() || '')
+        + '&did='       + encodeURIComponent(getDeviceId())
+      );
+      if (result && result.ok) {
+        let changed = false;
+        for (const [k, v] of Object.entries(result.posters || {})) {
+          const cleanKey = normalize(k.replace(/\.[a-z0-9]{2,5}$/i, ''));
+          if (posterMap[cleanKey] !== v) { posterMap[cleanKey] = v; changed = true; }
+        }
+        for (const [k, v] of Object.entries(result.movies || {})) {
+          if (typeof v === 'object' && v !== null && v.mimeType && v.mimeType.startsWith('image/')) {
+            if (thumbMap[k] !== v) { thumbMap[k] = v; changed = true; }
+          }
+        }
+        // Re-render immediately if this show+season is still open
+        if (changed && overlayCurrentShow && normalize(overlayCurrentShow.title) === showNorm && overlayCurrentSeason === seasonNum) {
+          renderOverlayEpisodes();
+        }
+      }
+    } catch(e) { /* skip failed batch */ }
+    if (i + BATCH < thumbFiles.length) await new Promise(r => setTimeout(r, 200));
   }
 }
 
 function findPosterMatch(title, posterMap) {
+  // Used for show posters — filenames are plain title with no year/resolution,
+  // e.g. "Breaking Bad.jpg". Movie posters are matched via drive filename in mergeData.
   const key = normalize(title);
-  // 1. Direct normalized key lookup (fast path — works when keys are already normalized)
   if (posterMap[key] !== undefined) return posterMap[key];
-  // 2. Iterate and normalize both sides, stripping file extensions from poster keys
-  //    so "Breaking Bad.jpg", "INVINCIBLE.jpg", "Phineas and Ferb.jpg" all match correctly.
   for (const [rawKey, val] of Object.entries(posterMap)) {
-    const normalizedPosterKey = normalize(rawKey.replace(/\.[a-z0-9]{2,5}$/i, ''));
-    if (normalizedPosterKey === key) return val;
+    if (normalize(rawKey) === key) return val;
   }
   return null;
 }
@@ -1229,7 +1302,12 @@ function mergeData(rows, driveMap, posterMap = {}) {
     const fileSize       = row.file_size || row.filesize || row.size || '';
     const imdbRating     = row.imdb_rating || row.imdbrating || row.imdb || '';
     const match          = findDriveMatch(title, driveMap);
-    const poster         = findPosterMatch(title, posterMap);
+    // Movie posters share the exact same filename as the video file, just with a .jpg
+    // extension. Match directly via the drive filename key; fall back to title-based
+    // lookup for movies that don't have a drive file yet.
+    const poster         = match
+      ? (posterMap[normalizeFilename(match.name)] ?? findPosterMatch(title, posterMap))
+      : findPosterMatch(title, posterMap);
     return { title, runtime, resolution, maturityRating, releaseDate, year: extractYear(releaseDate), fileSize, imdbRating, available: !!match, driveLink: match ? match.link : null, driveResolution: match ? (match.name || '') : '', poster };
   }).filter(m => m.title);
 
