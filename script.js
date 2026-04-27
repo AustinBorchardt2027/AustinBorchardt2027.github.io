@@ -714,11 +714,16 @@ function openShowOverlay(show) {
 
   // Generate Season tabs (Column left)
   if (seasonsEl) {
-    seasonsEl.innerHTML = show.seasons.map(s => `
+    seasonsEl.innerHTML = show.seasons.map(s => {
+      const total = s.episodes.length;
+      const avail = s.episodes.filter(e => e.available).length;
+      const pillClass = avail === total ? 'season-pill--full' : avail === 0 ? 'season-pill--none' : 'season-pill--partial';
+      return `
       <button class="show-overlay-season-btn ${s.num === overlayCurrentSeason ? 'active' : ''}" data-season="${s.num}">
-        Season ${s.num}
-      </button>
-    `).join('');
+        <span class="season-btn-label">Season ${s.num}</span>
+        <span class="season-pill ${pillClass}">${avail}/${total}</span>
+      </button>`;
+    }).join('');
     seasonsEl.querySelectorAll('.show-overlay-season-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         overlayCurrentSeason = parseInt(btn.dataset.season, 10);
