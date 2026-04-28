@@ -1,6 +1,6 @@
 /* =============================================================
    THE DRIVE — script.js
-   4/27/2026 — 10:25 PM
+   4/27/2026 — 10:54 PM
    ============================================================= */
 
 // ─── CONFIG ───────────────────────────────────────────────────
@@ -754,12 +754,6 @@ function renderOverlayEpisodes() {
 
   episodesEl.innerHTML = season.episodes.map(ep => {
     const padE = String(ep.num).padStart(2, '0');
-    // Build two match tokens:
-    //   showNorm — the normalized show title (must appear at the start of the Drive key)
-    //   epCode   — the normalized episode code, e.g. "s01e02"
-    // Using startsWith(showNorm) + includes(epCode) instead of startsWith(full prefix)
-    // correctly handles multi-episode files like "Show - S01E01 S01E02 - Titles.mkv",
-    // where S01E02 sits in the middle of the key and would never match a startsWith check.
     const showNorm = normalize(overlayCurrentShow.title);
     const epCode   = normalize(`s${padS}e${padE}`);
 
@@ -778,7 +772,6 @@ function renderOverlayEpisodes() {
       for (const [rawKey, val] of Object.entries(posterMap)) {
         const key = normalize(rawKey.replace(/\.[a-z0-9]{2,5}$/i, ''));
         if (key.startsWith(showNorm) && key.includes(epCode) && key.includes('thumb')) {
-          // posterMap values are already thumbnail URLs (sz=w200); bump to w400 for episode display
           thumbUrl = String(val).replace(/sz=w\d+/, 'sz=w400');
           break;
         }
@@ -869,13 +862,8 @@ function fetchScriptJSON(url, bustCache = false) {
 
 function applyDriveData(rawData, csvRows) {
   const rawMovies = rawData.movies || rawData;
-  // Normalize poster keys on assignment so findPosterMatch fast-path always works.
-  // Use normalizeFilename (strips years + brackets) so movie posters like
-  // 'The Dark Knight (2008).jpg' key as 'thedarkknight', matching the title lookup.
   posterMap = {};
   for (const [k, v] of Object.entries(rawData.posters || {})) {
-    // Strip extension then normalize — keep year/resolution so movie poster keys
-    // like 'The Dark Knight (2008) [1080p]' can be looked up via their drive filename.
     posterMap[normalize(k.replace(/\.[a-z0-9]{2,5}$/i, ''))] = v;
   }
   if (rawData.requests) {
@@ -921,8 +909,6 @@ function applyDriveData(rawData, csvRows) {
         show.poster = autoPoster;
       }
     });
-    // Only re-render shows once the Drive file merge is complete, to avoid
-    // overwriting ep.available flags that were set by mergeShowDriveFiles.
     if (showDriveMerged) renderShows();
   }
 }
@@ -969,8 +955,6 @@ function jsonpAction(url) {
 const SEQUENTIAL_BATCH_SIZE = 10;
 
 // ─── SCAN STATUS MESSAGES ────────────────────────────────────
-// Shown in the progress bar area during a cold-cache Drive scan.
-// The bar already shows numeric progress; these add a human label.
 const SCAN_STATUS_MSGS = [
   'Scanning Drive…',
   'Reading movie files…',
@@ -1070,8 +1054,6 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
   }
 
   const accumMovies = {}, accumPosters = {}, accumRequests = {}, accumRatings = {};
-  // Server now uses Drive.Files.list (fast), so we can push larger batches
-  // with more concurrency without hitting Apps Script quotas.
   const SCAN_BATCH_SIZE = 50, CONCURRENCY = 3;
   const INTER_BATCH_DELAY_MS = 200; 
   const total = files.length;
@@ -1161,10 +1143,6 @@ async function loadDataBulkFallback(driveURL, csvRows, forceRefresh, background 
 }
 
 // ─── BACKGROUND POSTER REFRESH ────────────────────────────────
-// Runs on every page load after serving from cache. Fetches poster-folder
-// files only, rendering each batch immediately as it arrives.
-// Posters (show cards / movie cards) are fetched first, then episode
-// thumbnails, so the most visible images appear as fast as possible.
 async function refreshPostersInBackground(driveURL, csvRows) {
   let allPosterFiles = [];
   try {
@@ -1176,13 +1154,11 @@ async function refreshPostersInBackground(driveURL, csvRows) {
 
   if (!allPosterFiles.length) return;
 
-  // Split: episode thumbnails (filename contains "thumb") go last
   const posterFiles = allPosterFiles.filter(f => !normalize(f.name || '').includes('thumb'));
   const thumbFiles  = allPosterFiles.filter(f =>  normalize(f.name || '').includes('thumb'));
 
   const BATCH = 10;
 
-  // Helper: scan one batch of poster files, merge results, re-render immediately
   async function scanAndApplyBatch(batch) {
     const fileIds   = batch.map(f => f.id).join(',');
     const isPosters = batch.map(() => '1').join(',');
@@ -1198,14 +1174,12 @@ async function refreshPostersInBackground(driveURL, csvRows) {
     } catch(e) { return; }
     if (!result || !result.ok) return;
 
-    // Merge fresh posters into posterMap
     let postersChanged = false;
     for (const [k, v] of Object.entries(result.posters || {})) {
       const cleanKey = normalize(k.replace(/\.[a-z0-9]{2,5}$/i, ''));
       if (posterMap[cleanKey] !== v) { posterMap[cleanKey] = v; postersChanged = true; }
     }
 
-    // Merge any image entries that landed in movies (thumbs outside Posters folder)
     let thumbsChanged = false;
     for (const [k, v] of Object.entries(result.movies || {})) {
       if (typeof v === 'object' && v !== null && v.mimeType && v.mimeType.startsWith('image/')) {
@@ -1216,7 +1190,6 @@ async function refreshPostersInBackground(driveURL, csvRows) {
     if (!postersChanged && !thumbsChanged) return;
 
     if (postersChanged) {
-      // Update show card posters immediately
       let showsChanged = false;
       allShows.forEach(show => {
         const fresh = findPosterMatch(show.title, posterMap);
@@ -1224,7 +1197,6 @@ async function refreshPostersInBackground(driveURL, csvRows) {
       });
       if (showsChanged && showDriveMerged) renderShows();
 
-      // Update movie card posters immediately — match via drive filename (same as poster filename)
       let moviesChanged = false;
       allMovies.forEach(m => {
         const driveKey = m.driveResolution ? normalize(m.driveResolution) : null;
@@ -1238,24 +1210,18 @@ async function refreshPostersInBackground(driveURL, csvRows) {
 
   }
 
-  // Phase 1: show/movie posters — render each batch as it arrives
   for (let i = 0; i < posterFiles.length; i += BATCH) {
     await scanAndApplyBatch(posterFiles.slice(i, i + BATCH));
     if (i + BATCH < posterFiles.length) await new Promise(r => setTimeout(r, 300));
   }
-
-  // Episode thumbnails are fetched on-demand in fetchThumbsForSeason()
 }
 
 // ─── ON-DEMAND SEASON THUMBNAIL FETCH ────────────────────────
-// Called when a show overlay opens or a season tab is clicked.
-// Fetches only the thumbnail files for that show+season from Drive,
-// then re-renders the episode list as each batch arrives.
-const thumbFetchCache = new Set(); // tracks "showkey:season" pairs already fetched
+const thumbFetchCache = new Set();
 
 async function fetchThumbsForSeason(show, seasonNum) {
   const cacheKey = normalize(show.title) + ':' + seasonNum;
-  if (thumbFetchCache.has(cacheKey)) return; // already fetched this session
+  if (thumbFetchCache.has(cacheKey)) return;
   thumbFetchCache.add(cacheKey);
 
   const driveURL = DRIVE_SCRIPT_URL;
@@ -1269,15 +1235,12 @@ async function fetchThumbsForSeason(show, seasonNum) {
     }
   } catch(e) { return; }
 
-  // Filter to only thumb files that match this show + season (per-episode thumbnails)
   const showNorm   = normalize(show.title);
   const padS       = String(seasonNum).padStart(2, '0');
-  const seasonCode = 's' + padS; // e.g. 's01' — matches s01e01, s01e02, etc.
+  const seasonCode = 's' + padS;
 
   const thumbFiles = allPosterFiles.filter(f => {
     const n = normalize(f.name || '');
-    // Must belong to this show, be a thumbnail, and contain the season code
-    // (which appears as part of the episode code s01e01, s01e02... in the filename)
     return n.includes('thumb') && n.startsWith(showNorm) && n.includes(seasonCode + 'e');
   });
 
@@ -1307,7 +1270,6 @@ async function fetchThumbsForSeason(show, seasonNum) {
             if (thumbMap[k] !== v) { thumbMap[k] = v; changed = true; }
           }
         }
-        // Re-render immediately if this show+season is still open
         if (changed && overlayCurrentShow && normalize(overlayCurrentShow.title) === showNorm && overlayCurrentSeason === seasonNum) {
           renderOverlayEpisodes();
         }
@@ -1318,8 +1280,6 @@ async function fetchThumbsForSeason(show, seasonNum) {
 }
 
 function findPosterMatch(title, posterMap) {
-  // Used for show posters — filenames are plain title with no year/resolution,
-  // e.g. "Breaking Bad.jpg". Movie posters are matched via drive filename in mergeData.
   const key = normalize(title);
   if (posterMap[key] !== undefined) return posterMap[key];
   for (const [rawKey, val] of Object.entries(posterMap)) {
@@ -1338,9 +1298,6 @@ function mergeData(rows, driveMap, posterMap = {}) {
     const fileSize       = row.file_size || row.filesize || row.size || '';
     const imdbRating     = row.imdb_rating || row.imdbrating || row.imdb || '';
     const match          = findDriveMatch(title, driveMap);
-    // Movie posters share the exact same filename as the video file, just with a .jpg
-    // extension. Match directly via the drive filename key; fall back to title-based
-    // lookup for movies that don't have a drive file yet.
     const poster         = match
       ? (posterMap[normalizeFilename(match.name)] ?? findPosterMatch(title, posterMap))
       : findPosterMatch(title, posterMap);
@@ -1867,14 +1824,11 @@ function setRequestedState(title, count) {
 })();
 
 // ── Full server-side Drive scan via JSONP ─────────────────────
-// Hits doGet?bust=1, which runs collectFilesViaAPI server-side and
-// returns the complete payload in one response. No polling needed.
-// Uses a long timeout (5 min) since a cold Drive walk can take ~30-45s.
 function triggerFullScan() {
   return new Promise((resolve, reject) => {
     const cbName = '__scanCallback_' + Date.now();
     const script = document.createElement('script');
-    const SCAN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes — Apps Script limit is 6
+    const SCAN_TIMEOUT_MS = 5 * 60 * 1000;
     const timer = setTimeout(() => {
       cleanup();
       reject(new Error('scan timeout'));
@@ -1907,7 +1861,6 @@ if (refreshBtn) {
     try { localStorage.removeItem('thedrive_requests_v1'); } catch(e) {}
     try { localStorage.removeItem('thedrive_rating_counts_v1'); } catch(e) {}
 
-    // Fetch fresh CSV in parallel while server scans Drive
     let csvRows = [];
     const csvPromise = fetchURL(SHEET_CSV_URL, true)
       .then(r => r.ok ? r.text() : '')
@@ -1923,16 +1876,14 @@ if (refreshBtn) {
       return;
     }
 
-    // Animate fake progress (15 → 90) while waiting for the server scan
     const scanStart = Date.now();
-    const FAKE_DURATION_MS = 40000; // assume ~40s typical scan
+    const FAKE_DURATION_MS = 40000;
     const progressInterval = setInterval(() => {
       const pct = 15 + Math.min(75, ((Date.now() - scanStart) / FAKE_DURATION_MS) * 75);
       setProgress(pct);
     }, 500);
 
     try {
-      // Wait for both CSV and the full server-side Drive scan to finish
       const [driveData] = await Promise.all([triggerFullScan(), csvPromise]);
 
       clearInterval(progressInterval);
@@ -1959,8 +1910,6 @@ if (refreshBtn) {
 }
 
 (async function init() {
-  // Always default to movies tab, row view, no filters.
-  // Clear any stale saved state so returning users also get the reset.
   try { localStorage.removeItem(LOCAL_SETTINGS_KEY); } catch(e) {}
   currentSort = 'title'; currentDir = 'asc';
   if (sortBy) sortBy.value = 'title';
@@ -1969,10 +1918,7 @@ if (refreshBtn) {
   await initWithGate();
   loadShowsData();
 
-  // ── Initial load: use the same full server-side scan as the manual refresh ──
-  // This replaces the old loadData() cache/batch path which was slow and missed files.
   if (!DRIVE_SCRIPT_URL || DRIVE_SCRIPT_URL === 'YOUR_APPS_SCRIPT_EXEC_URL_HERE') {
-    // No script URL — just load from CSV
     try {
       const r = await fetchURL(SHEET_CSV_URL, false);
       const text = r.ok ? await r.text() : '';
@@ -1984,14 +1930,12 @@ if (refreshBtn) {
     scanBar.classList.remove('hidden');
     setProgress(5);
 
-    // Fetch fresh CSV in parallel while the server scans Drive (same as refresh button)
     let csvRows = [];
     const csvPromise = fetchURL(SHEET_CSV_URL, true)
       .then(r => r.ok ? r.text() : '')
       .then(text => { if (text) csvRows = parseCSV(text); })
       .catch(() => {});
 
-    // Animate fake progress (15 → 90) while waiting
     const scanStart = Date.now();
     const FAKE_DURATION_MS = 20000;
     const progressInterval = setInterval(() => {
@@ -2142,7 +2086,6 @@ function renderLocalStats() {
   if (!allMovies.length && !allShows.length) return;
   const total = allMovies.length, available = allMovies.filter(m => m.available).length;
 
-  // Count episodes across all shows
   const totalEps = allShows.reduce((t, s) => t + showTotalCount(s), 0);
   const availEps = allShows.reduce((t, s) => t + showAvailableCount(s), 0);
 
@@ -2326,3 +2269,44 @@ function pushSnapshot(total, available) {
   script.onerror = () => { clearTimeout(timer); if (script.parentNode) script.parentNode.removeChild(script); };
   document.head.appendChild(script);
 }
+
+// ─── DEVICE ID CORNER REVEAL ──────────────────────────────────
+(function initDeviceIdReveal() {
+  const el = document.createElement('div');
+  el.id = 'device-id-corner';
+  el.style.cssText = [
+    'position:fixed',
+    'bottom:12px',
+    'right:14px',
+    'z-index:99999',
+    'font-family:monospace',
+    'font-size:10px',
+    'color:rgba(144,144,168,0.9)',
+    'background:rgba(18,18,26,0.85)',
+    'border:1px solid rgba(80,80,110,0.4)',
+    'border-radius:5px',
+    'padding:4px 9px',
+    'letter-spacing:0.08em',
+    'pointer-events:none',
+    'opacity:0',
+    'transition:opacity 0.2s ease',
+  ].join(';');
+  document.body.appendChild(el);
+
+  const CORNER_PX = 80;
+  let hideTimer = null;
+
+  document.addEventListener('mousemove', function(e) {
+    const nearRight  = window.innerWidth  - e.clientX < CORNER_PX;
+    const nearBottom = window.innerHeight - e.clientY < CORNER_PX;
+
+    if (nearRight && nearBottom) {
+      if (!el.textContent) el.textContent = 'DID: ' + getDeviceId();
+      el.style.opacity = '1';
+      clearTimeout(hideTimer);
+    } else if (el.style.opacity !== '0') {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(function() { el.style.opacity = '0'; }, 300);
+    }
+  });
+})();
