@@ -2293,7 +2293,7 @@ function pushSnapshot(total, available) {
   ].join(';');
   document.body.appendChild(el);
 
-  const CORNER_PX = 80;
+  const CORNER_PX = 12;
   let hideTimer = null;
 
   document.addEventListener('mousemove', function(e) {
